@@ -4,9 +4,17 @@ Designed for WhatsApp bot integration
 """
 
 import json
+import os
 import re
 from datetime import datetime, timedelta
 from typing import List, Dict, Tuple, Optional
+
+# Supabase support
+try:
+    from supabase import create_client, Client
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
 
 
 class Player:
@@ -50,11 +58,11 @@ class Player:
 
 class TeamBalancer:
     """Main class for team balancing and rating management"""
-    
+
     def __init__(self, k_factor: int = 32):
         """
         Initialize balancer
-        
+
         Args:
             k_factor: ELO K-factor (higher = more volatile ratings)
                      32 is standard for amateur players
@@ -62,6 +70,29 @@ class TeamBalancer:
         self.players: Dict[str, Player] = {}
         self.k_factor = k_factor
         self.pending_games: Dict[str, dict] = {}  # game_id -> game data
+
+        # Supabase setup
+        self.supabase: Optional[Client] = None
+        self._init_supabase()
+
+    def _init_supabase(self):
+        """Inizializza connessione Supabase se disponibile"""
+        if not SUPABASE_AVAILABLE:
+            print("⚠️ Supabase non disponibile, uso file locale")
+            return
+
+        supabase_url = os.environ.get('SUPABASE_URL')
+        supabase_key = os.environ.get('SUPABASE_KEY')
+
+        if supabase_url and supabase_key:
+            try:
+                self.supabase = create_client(supabase_url, supabase_key)
+                print("✅ Connesso a Supabase")
+            except Exception as e:
+                print(f"⚠️ Errore connessione Supabase: {e}")
+                self.supabase = None
+        else:
+            print("⚠️ Credenziali Supabase non configurate, uso file locale")
     
     def add_player(self, name: str, initial_vote: int) -> str:
         """Add a new player with initial 1-10 vote"""
@@ -84,6 +115,8 @@ class TeamBalancer:
         # Trova il nome esatto (case-sensitive) per la rimozione
         actual_name = player.name
         del self.players[actual_name]
+        # Elimina anche da Supabase
+        self._delete_player_from_supabase(actual_name)
         return f"✅ Giocatore '{actual_name}' rimosso"
 
     def parse_participant_list(self, message: str) -> List[str]:
@@ -311,7 +344,14 @@ class TeamBalancer:
         return None
     
     def save_to_file(self, filename: str = 'football_data.json'):
-        """Save all data to JSON file"""
+        """Salva dati su Supabase o file locale"""
+        if self.supabase:
+            self._save_to_supabase()
+        else:
+            self._save_to_local_file(filename)
+
+    def _save_to_local_file(self, filename: str = 'football_data.json'):
+        """Salva dati su file JSON locale"""
         data = {
             'players': {name: player.to_dict() for name, player in self.players.items()},
             'pending_games': self.pending_games,
@@ -319,20 +359,85 @@ class TeamBalancer:
         }
         with open(filename, 'w') as f:
             json.dump(data, f, indent=2)
-    
+
+    def _save_to_supabase(self):
+        """Salva dati su Supabase"""
+        try:
+            # Salva giocatori
+            for name, player in self.players.items():
+                player_data = player.to_dict()
+                # Upsert: inserisce o aggiorna
+                self.supabase.table('players').upsert(
+                    player_data,
+                    on_conflict='name'
+                ).execute()
+
+            # Salva partite in attesa
+            # Prima elimina tutte le partite esistenti, poi reinserisce
+            self.supabase.table('pending_games').delete().neq('game_id', '').execute()
+            for game_id, game_data in self.pending_games.items():
+                self.supabase.table('pending_games').insert({
+                    'game_id': game_id,
+                    'data': json.dumps(game_data)
+                }).execute()
+
+        except Exception as e:
+            print(f"Errore salvataggio Supabase: {e}")
+            # Fallback su file locale
+            self._save_to_local_file()
+
     def load_from_file(self, filename: str = 'football_data.json'):
-        """Load data from JSON file"""
+        """Carica dati da Supabase o file locale"""
+        if self.supabase:
+            return self._load_from_supabase()
+        else:
+            return self._load_from_local_file(filename)
+
+    def _load_from_local_file(self, filename: str = 'football_data.json'):
+        """Carica dati da file JSON locale"""
         try:
             with open(filename, 'r') as f:
                 data = json.load(f)
-            
-            self.players = {name: Player.from_dict(pdata) 
+
+            self.players = {name: Player.from_dict(pdata)
                           for name, pdata in data['players'].items()}
             self.pending_games = data.get('pending_games', {})
             self.k_factor = data.get('k_factor', 32)
             return True
         except FileNotFoundError:
             return False
+
+    def _load_from_supabase(self):
+        """Carica dati da Supabase"""
+        try:
+            # Carica giocatori
+            result = self.supabase.table('players').select('*').execute()
+            self.players = {}
+            for row in result.data:
+                player = Player.from_dict(row)
+                self.players[player.name] = player
+
+            # Carica partite in attesa
+            result = self.supabase.table('pending_games').select('*').execute()
+            self.pending_games = {}
+            for row in result.data:
+                self.pending_games[row['game_id']] = json.loads(row['data'])
+
+            print(f"✅ Caricati {len(self.players)} giocatori da Supabase")
+            return True
+
+        except Exception as e:
+            print(f"Errore caricamento Supabase: {e}")
+            # Fallback su file locale
+            return self._load_from_local_file()
+
+    def _delete_player_from_supabase(self, name: str):
+        """Elimina giocatore da Supabase"""
+        if self.supabase:
+            try:
+                self.supabase.table('players').delete().eq('name', name).execute()
+            except Exception as e:
+                print(f"Errore eliminazione da Supabase: {e}")
 
 
 # Example usage and testing
