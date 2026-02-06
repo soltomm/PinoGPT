@@ -77,19 +77,27 @@ class TeamBalancer:
 
     def _init_supabase(self):
         """Inizializza connessione Supabase se disponibile"""
+        print(f"🔧 Inizializzazione Supabase...")
+        print(f"   SUPABASE_AVAILABLE: {SUPABASE_AVAILABLE}")
+
         if not SUPABASE_AVAILABLE:
-            print("⚠️ Supabase non disponibile, uso file locale")
+            print("⚠️ Supabase non disponibile (modulo non installato), uso file locale")
             return
 
         supabase_url = os.environ.get('SUPABASE_URL')
         supabase_key = os.environ.get('SUPABASE_KEY')
 
+        print(f"   SUPABASE_URL configurato: {supabase_url is not None}")
+        print(f"   SUPABASE_KEY configurato: {supabase_key is not None}")
+
         if supabase_url and supabase_key:
             try:
                 self.supabase = create_client(supabase_url, supabase_key)
-                print("✅ Connesso a Supabase")
+                print(f"✅ Connesso a Supabase: {supabase_url}")
             except Exception as e:
                 print(f"⚠️ Errore connessione Supabase: {e}")
+                import traceback
+                traceback.print_exc()
                 self.supabase = None
         else:
             print("⚠️ Credenziali Supabase non configurate, uso file locale")
@@ -345,6 +353,8 @@ class TeamBalancer:
     
     def save_to_file(self, filename: str = 'football_data.json'):
         """Salva dati su Supabase o file locale"""
+        print(f"📝 Salvataggio dati... (Supabase: {self.supabase is not None})")
+        print(f"   Giocatori: {len(self.players)}, Partite in attesa: {len(self.pending_games)}")
         if self.supabase:
             self._save_to_supabase()
         else:
@@ -366,32 +376,46 @@ class TeamBalancer:
             # Salva giocatori
             for name, player in self.players.items():
                 player_data = player.to_dict()
+                print(f"   Salvando giocatore: {name}")
                 # Upsert: inserisce o aggiorna
-                self.supabase.table('players').upsert(
+                result = self.supabase.table('players').upsert(
                     player_data,
                     on_conflict='name'
                 ).execute()
+                print(f"   Risultato: {result}")
 
             # Salva partite in attesa
+            print(f"   Salvando {len(self.pending_games)} partite in attesa...")
             # Prima elimina tutte le partite esistenti, poi reinserisce
             self.supabase.table('pending_games').delete().neq('game_id', '').execute()
             for game_id, game_data in self.pending_games.items():
-                self.supabase.table('pending_games').insert({
+                print(f"   Salvando partita: {game_id}")
+                result = self.supabase.table('pending_games').insert({
                     'game_id': game_id,
                     'data': json.dumps(game_data)
                 }).execute()
+                print(f"   Risultato: {result}")
+
+            print("✅ Dati salvati su Supabase")
 
         except Exception as e:
-            print(f"Errore salvataggio Supabase: {e}")
+            print(f"❌ Errore salvataggio Supabase: {e}")
+            import traceback
+            traceback.print_exc()
             # Fallback su file locale
             self._save_to_local_file()
 
     def load_from_file(self, filename: str = 'football_data.json'):
         """Carica dati da Supabase o file locale"""
+        print(f"📂 Caricamento dati... (Supabase: {self.supabase is not None})")
         if self.supabase:
-            return self._load_from_supabase()
+            result = self._load_from_supabase()
+            print(f"   Caricati da Supabase: {len(self.players)} giocatori, {len(self.pending_games)} partite")
+            return result
         else:
-            return self._load_from_local_file(filename)
+            result = self._load_from_local_file(filename)
+            print(f"   Caricati da file locale: {len(self.players)} giocatori, {len(self.pending_games)} partite")
+            return result
 
     def _load_from_local_file(self, filename: str = 'football_data.json'):
         """Carica dati da file JSON locale"""
