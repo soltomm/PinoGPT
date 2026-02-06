@@ -1,13 +1,13 @@
 """
-WhatsApp Bot for Football Team Balancer
-Uses Meta Cloud API (FREE)
+PinoGPT - Bot WhatsApp per Bilanciamento Squadre di Calcetto
+Usa Meta Cloud API (GRATUITO)
 
-Setup instructions in SETUP_GUIDE.md
+Istruzioni di configurazione in SETUP_GUIDE.md
 
-Environment variables needed:
-- META_ACCESS_TOKEN: Your WhatsApp Business API token
-- META_PHONE_NUMBER_ID: Your WhatsApp phone number ID
-- WEBHOOK_VERIFY_TOKEN: Random string for webhook verification
+Variabili d'ambiente necessarie:
+- META_ACCESS_TOKEN: Il tuo token WhatsApp Business API
+- META_PHONE_NUMBER_ID: Il tuo ID numero di telefono WhatsApp
+- WEBHOOK_VERIFY_TOKEN: Stringa casuale per verifica webhook
 """
 
 import os
@@ -33,18 +33,18 @@ META_API_URL = f'https://graph.facebook.com/{META_API_VERSION}/{META_PHONE_NUMBE
 balancer = TeamBalancer()
 balancer.load_from_file()
 
-# Store game timestamps for next-day reminders
+# Memorizza timestamp partite per promemoria del giorno dopo
 game_reminders = {}
 
-# Scheduler for sending reminders
+# Scheduler per invio promemoria
 scheduler = BackgroundScheduler()
 scheduler.start()
 
 
 def send_whatsapp_message(to_number: str, message: str):
-    """Send WhatsApp message via Meta Cloud API"""
+    """Invia messaggio WhatsApp tramite Meta Cloud API"""
     
-    # Remove 'whatsapp:' prefix if present
+    # Rimuovi prefisso 'whatsapp:' se presente
     to_number = to_number.replace('whatsapp:', '')
     
     headers = {
@@ -68,14 +68,14 @@ def send_whatsapp_message(to_number: str, message: str):
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        print(f"Error sending message: {e}")
+        print(f"Errore invio messaggio: {e}")
         if hasattr(e.response, 'text'):
             print(f"Response: {e.response.text}")
         return None
 
 
 def mark_message_as_read(message_id: str):
-    """Mark a message as read"""
+    """Segna un messaggio come letto"""
     headers = {
         'Authorization': f'Bearer {META_ACCESS_TOKEN}',
         'Content-Type': 'application/json'
@@ -91,18 +91,18 @@ def mark_message_as_read(message_id: str):
         response = requests.post(META_API_URL, headers=headers, json=payload)
         response.raise_for_status()
     except Exception as e:
-        print(f"Error marking as read: {e}")
+        print(f"Errore nel segnare come letto: {e}")
 
 
 def schedule_score_request(game_id: str, phone_number: str):
-    """Schedule a message to ask for score 24 hours later"""
+    """Programma un messaggio per chiedere il risultato dopo 24 ore"""
     send_time = datetime.now() + timedelta(hours=24)
-    
+
     def send_reminder():
-        message = f"⚽ *GAME RESULT REQUEST*\n\n"
-        message += f"How did yesterday's game go?\n\n"
-        message += f"Reply with the score (e.g., '5-3' or '3-2')\n"
-        message += f"_Game ID: {game_id}_"
+        message = f"⚽ *RICHIESTA RISULTATO PARTITA*\n\n"
+        message += f"Com'è andata la partita di ieri?\n\n"
+        message += f"Rispondi con il risultato (es. '5-3' o '3-2')\n"
+        message += f"_ID Partita: {game_id}_"
         send_whatsapp_message(phone_number, message)
     
     scheduler.add_job(
@@ -116,12 +116,12 @@ def schedule_score_request(game_id: str, phone_number: str):
 
 
 def handle_message(incoming_message: str, from_number: str) -> str:
-    """Process incoming WhatsApp message and return response"""
-    
+    """Elabora messaggio WhatsApp in arrivo e restituisce risposta"""
+
     message = incoming_message.strip().lower()
-    
-    # Command: Add player
-    if message.startswith('add '):
+
+    # Comando: Aggiungi giocatore
+    if message.startswith('aggiungi '):
         parts = incoming_message.split()
         if len(parts) >= 3:
             name = ' '.join(parts[1:-1])
@@ -131,38 +131,48 @@ def handle_message(incoming_message: str, from_number: str) -> str:
                 balancer.save_to_file()
                 return response
             except ValueError:
-                return "❌ Invalid format. Use: add [name] [rating 1-10]"
-        return "❌ Invalid format. Use: add [name] [rating 1-10]"
-    
-    # Command: Help
-    elif message in ['help', 'commands', 'start', 'hi', 'hello']:
-        return """⚽ *FOOTBALL TEAM BALANCER*
+                return "❌ Formato non valido. Usa: aggiungi [nome] [voto 1-10]"
+        return "❌ Formato non valido. Usa: aggiungi [nome] [voto 1-10]"
 
-*Commands:*
-• *add [name] [rating]* - Add player
-  Example: add John 7
-• *teams* - Create balanced teams
-• *score* - Record game result
-• *leaderboard* - Show rankings
-• *pending* - Show unrecorded games
-• *stats [name]* - Show player stats
-• *help* - Show this message
+    # Comando: Rimuovi giocatore
+    elif message.startswith('rimuovi '):
+        player_name = incoming_message[8:].strip()
+        if not player_name:
+            return "❌ Formato non valido. Usa: rimuovi [nome]"
+        response = balancer.remove_player(player_name)
+        balancer.save_to_file()
+        return response
 
-*How to use:*
-1️⃣ Add all players with ratings 1-10
-2️⃣ Send "teams" then list 10 names
-3️⃣ Next day, send "score" then result
+    # Comando: Aiuto
+    elif message in ['help', 'aiuto', 'comandi', 'start', 'ciao', 'hello']:
+        return """⚽ *PinoGPT*
+
+*Comandi:*
+• *aggiungi [nome] [voto]* - Aggiungi giocatore
+  Esempio: aggiungi Marco 7 (voto da 1 a 10)
+• *rimuovi [nome]* - Rimuovi giocatore
+• *squadre* - Crea squadre bilanciate
+• *risultato* - Registra il risultato della partita
+• *classifica* - Mostra la classifica
+• *inattesa* - Mostra le partite non registrate
+• *stats [nome]* - Mostra statistiche giocatore
+• *aiuto* - Mostra questo messaggio
+
+*Come usare:*
+1️⃣ Aggiungi tutti i giocatori con voti 1-10
+2️⃣ Scrivi "squadre" poi elenca 10 nomi
+3️⃣ Il giorno dopo, scrivi "risultato" poi il punteggio
 """
     
-    # Command: Leaderboard
-    elif message in ['leaderboard', 'rankings', 'top', 'rank']:
+    # Comando: Classifica
+    elif message in ['classifica', 'leaderboard', 'rankings', 'top', 'rank']:
         return balancer.get_leaderboard()
-    
-    # Command: Pending games
-    elif message in ['pending', 'games']:
+
+    # Comando: Partite in attesa
+    elif message in ['inattesa', 'pending', 'partite']:
         return balancer.get_pending_games()
-    
-    # Command: Player stats
+
+    # Comando: Statistiche giocatore
     elif message.startswith('stats '):
         player_name = incoming_message[6:].strip()
         player = balancer._find_player(player_name)
@@ -170,41 +180,41 @@ def handle_message(incoming_message: str, from_number: str) -> str:
             win_rate = (player.wins / player.games_played * 100) if player.games_played > 0 else 0
             return f"""📊 *{player.name}*
 
-ELO Rating: {player.elo}
-Games Played: {player.games_played}
-Wins: {player.wins}
-Losses: {player.losses}
-Win Rate: {win_rate:.1f}%
+Punteggio ELO: {player.elo}
+Partite Giocate: {player.games_played}
+Vittorie: {player.wins}
+Sconfitte: {player.losses}
+Percentuale Vittorie: {win_rate:.1f}%
 """
-        return f"❌ Player '{player_name}' not found"
-    
-    # Command: Teams (start team selection)
-    elif message in ['teams', 'team', 'create teams']:
-        return """⚽ *TEAM SELECTION MODE*
+        return f"❌ Giocatore '{player_name}' non trovato"
 
-Send me the list of 10 participants.
+    # Comando: Squadre (inizia selezione squadre)
+    elif message in ['squadre', 'teams', 'team', 'crea squadre']:
+        return """⚽ *MODALITÀ SELEZIONE SQUADRE*
 
-*Format options:*
-1. One name per line:
-John
-Mike
-Sarah
+Inviami la lista di 10 partecipanti.
+
+*Opzioni formato:*
+1. Un nome per riga:
+Marco
+Luca
+Anna
 ...
 
-2. Comma-separated:
-John, Mike, Sarah, Tom, ...
+2. Separati da virgola:
+Marco, Luca, Anna, Paolo, ...
 
-Send the list now! 👇
+Invia la lista adesso! 👇
 """
     
-    # Command: Score (start score submission)
-    elif message in ['score', 'result', 'record']:
+    # Comando: Risultato (inserimento punteggio)
+    elif message in ['risultato', 'score', 'result', 'punteggio']:
         pending = balancer.get_pending_games()
         if pending == "No pending games":
-            return "❌ No pending games. Create teams first!"
-        return f"{pending}\n\n💡 Reply with the score:\n• Just score: 5-3\n• With ID: 20240205_143022 5-3"
-    
-    # Try to parse as participant list
+            return "❌ Nessuna partita in attesa. Prima crea le squadre!"
+        return f"{pending}\n\n💡 Rispondi con il risultato:\n• Solo punteggio: 5-3\n• Con ID: 20240205_143022 5-3"
+
+    # Prova a interpretare come lista partecipanti
     elif '\n' in incoming_message or ',' in incoming_message:
         names = balancer.parse_participant_list(incoming_message)
         if len(names) == 10:
@@ -212,145 +222,145 @@ Send the list now! 👇
             if teams:
                 balancer.save_to_file()
                 schedule_score_request(teams['game_id'], from_number)
-                response += "\n\n⏰ I'll ask for the score tomorrow!"
+                response += "\n\n⏰ Ti chiederò il risultato domani!"
             return response
         elif len(names) > 0:
-            return f"❌ Need exactly 10 players, got {len(names)}.\n\n👥 Send exactly 10 names to create teams."
-    
-    # Try to parse as score submission
+            return f"❌ Servono esattamente 10 giocatori, ne hai inseriti {len(names)}.\n\n👥 Invia esattamente 10 nomi per creare le squadre."
+
+    # Prova a interpretare come inserimento risultato
     elif any(char in message for char in ['-', ' ']) and any(char.isdigit() for char in message):
         words = incoming_message.split()
-        
+
         game_id = None
         score_str = None
-        
-        # Find game_id and score
+
+        # Trova game_id e punteggio
         for word in words:
             if '_' in word and len(word) > 10:
                 game_id = word
             elif balancer.parse_score(word):
                 score_str = word
-        
-        # If only one pending game, use that
+
+        # Se c'è solo una partita in attesa, usa quella
         if not game_id and len(balancer.pending_games) == 1:
             game_id = list(balancer.pending_games.keys())[0]
-        
+
         if game_id and score_str:
             score = balancer.parse_score(score_str)
             if score:
                 response = balancer.update_ratings(game_id, score[0], score[1])
                 balancer.save_to_file()
                 return response
-        
-        # Try just score if one pending game
+
+        # Prova solo il punteggio se c'è una sola partita in attesa
         score = balancer.parse_score(incoming_message)
         if score and len(balancer.pending_games) == 1:
             game_id = list(balancer.pending_games.keys())[0]
             response = balancer.update_ratings(game_id, score[0], score[1])
             balancer.save_to_file()
             return response
-        
-        return "❌ Could not parse score.\n\n💡 Format: 5-3 or 20240205_143022 5-3"
-    
-    # Default response
-    return "❓ I didn't understand that.\n\nSend *help* for commands."
+
+        return "❌ Non riesco a interpretare il risultato.\n\n💡 Formato: 5-3 oppure 20240205_143022 5-3"
+
+    # Risposta predefinita
+    return "❓ Non ho capito.\n\nScrivi *aiuto* per i comandi."
 
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
-    """Handle Meta WhatsApp webhook"""
-    
+    """Gestisce webhook Meta WhatsApp"""
+
     if request.method == 'GET':
-        # Webhook verification
+        # Verifica webhook
         mode = request.args.get('hub.mode')
         token = request.args.get('hub.verify_token')
         challenge = request.args.get('hub.challenge')
 
-        print(f"🔍 Webhook GET request:")
+        print(f"🔍 Richiesta GET webhook:")
         print(f"   mode: {mode}")
-        print(f"   token received: {token}")
-        print(f"   token expected: {WEBHOOK_VERIFY_TOKEN}")
+        print(f"   token ricevuto: {token}")
+        print(f"   token atteso: {WEBHOOK_VERIFY_TOKEN}")
         print(f"   challenge: {challenge}")
-        print(f"   tokens match: {token == WEBHOOK_VERIFY_TOKEN}")
+        print(f"   token corrisponde: {token == WEBHOOK_VERIFY_TOKEN}")
 
         if mode == 'subscribe' and token == WEBHOOK_VERIFY_TOKEN:
-            print("✅ Webhook verified")
+            print("✅ Webhook verificato")
             if challenge:
                 response = make_response(challenge, 200)
                 response.headers['Content-Type'] = 'text/plain'
                 return response
             else:
-                print("⚠️ No challenge received")
+                print("⚠️ Nessun challenge ricevuto")
                 return 'OK', 200
         else:
-            print("❌ Webhook verification failed")
+            print("❌ Verifica webhook fallita")
             return 'Forbidden', 403
-    
+
     elif request.method == 'POST':
-        # Handle incoming messages
+        # Gestisci messaggi in arrivo
         data = request.get_json()
-        
+
         if not data:
-            return jsonify({'status': 'error', 'message': 'No data'}), 400
-        
+            return jsonify({'status': 'error', 'message': 'Nessun dato'}), 400
+
         try:
-            # Extract message data
+            # Estrai dati messaggio
             entry = data.get('entry', [{}])[0]
             changes = entry.get('changes', [{}])[0]
             value = changes.get('value', {})
             messages = value.get('messages', [])
-            
+
             if not messages:
-                return jsonify({'status': 'no messages'}), 200
-            
+                return jsonify({'status': 'nessun messaggio'}), 200
+
             message = messages[0]
             message_id = message.get('id')
             from_number = message.get('from')
             message_type = message.get('type')
-            
-            # Only handle text messages
+
+            # Gestisci solo messaggi di testo
             if message_type == 'text':
                 text_body = message.get('text', {}).get('body', '')
-                
-                # Mark as read
+
+                # Segna come letto
                 mark_message_as_read(message_id)
-                
-                # Process message
+
+                # Elabora messaggio
                 response_text = handle_message(text_body, from_number)
-                
-                # Send response
+
+                # Invia risposta
                 send_whatsapp_message(from_number, response_text)
-            
+
             return jsonify({'status': 'success'}), 200
-            
+
         except Exception as e:
-            print(f"Error processing webhook: {e}")
+            print(f"Errore elaborazione webhook: {e}")
             return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 @app.route('/health', methods=['GET'])
 def health():
-    """Health check endpoint"""
+    """Endpoint controllo stato"""
     return jsonify({
-        'status': 'healthy',
-        'players': len(balancer.players),
-        'pending_games': len(balancer.pending_games),
-        'scheduled_reminders': len(game_reminders)
+        'status': 'attivo',
+        'giocatori': len(balancer.players),
+        'partite_in_attesa': len(balancer.pending_games),
+        'promemoria_programmati': len(game_reminders)
     })
 
 
 @app.route('/stats', methods=['GET'])
 def stats():
-    """Get bot statistics"""
+    """Ottieni statistiche bot"""
     return jsonify({
-        'total_players': len(balancer.players),
-        'pending_games': len(balancer.pending_games),
-        'scheduled_reminders': len(game_reminders),
-        'top_players': [
+        'giocatori_totali': len(balancer.players),
+        'partite_in_attesa': len(balancer.pending_games),
+        'promemoria_programmati': len(game_reminders),
+        'top_giocatori': [
             {
-                'name': p.name,
+                'nome': p.name,
                 'elo': p.elo,
-                'games': p.games_played
+                'partite': p.games_played
             }
             for p in sorted(balancer.players.values(), key=lambda x: x.elo, reverse=True)[:5]
         ]
@@ -359,19 +369,19 @@ def stats():
 
 if __name__ == '__main__':
     print("=" * 50)
-    print("🚀 WhatsApp Football Bot Starting (Meta Cloud API)")
+    print("🚀 PinoGPT in avvio (Meta Cloud API)")
     print("=" * 50)
-    print(f"✅ Players loaded: {len(balancer.players)}")
-    print(f"⏳ Pending games: {len(balancer.pending_games)}")
+    print(f"✅ Giocatori caricati: {len(balancer.players)}")
+    print(f"⏳ Partite in attesa: {len(balancer.pending_games)}")
     print(f"📱 Phone Number ID: {META_PHONE_NUMBER_ID}")
     print("=" * 50)
-    
-    # Verify configuration
+
+    # Verifica configurazione
     if not META_ACCESS_TOKEN:
-        print("⚠️  WARNING: META_ACCESS_TOKEN not set!")
+        print("⚠️  ATTENZIONE: META_ACCESS_TOKEN non impostato!")
     if not META_PHONE_NUMBER_ID:
-        print("⚠️  WARNING: META_PHONE_NUMBER_ID not set!")
-    
-    # Run Flask app
+        print("⚠️  ATTENZIONE: META_PHONE_NUMBER_ID non impostato!")
+
+    # Avvia app Flask
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)

@@ -74,7 +74,18 @@ class TeamBalancer:
         
         self.players[name] = Player.from_vote(name, initial_vote)
         return f"✅ Added {name} with initial rating {initial_vote}/10 (ELO: {self.players[name].elo})"
-    
+
+    def remove_player(self, name: str) -> str:
+        """Rimuovi un giocatore dal sistema"""
+        player = self._find_player(name)
+        if not player:
+            return f"❌ Giocatore '{name}' non trovato"
+
+        # Trova il nome esatto (case-sensitive) per la rimozione
+        actual_name = player.name
+        del self.players[actual_name]
+        return f"✅ Giocatore '{actual_name}' rimosso"
+
     def parse_participant_list(self, message: str) -> List[str]:
         """
         Parse participant list from WhatsApp message
