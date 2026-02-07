@@ -59,21 +59,66 @@ class Player:
 class TeamBalancer:
     """Main class for team balancing and rating management"""
 
-    def __init__(self, k_factor: int = 32):
+    def __init__(self, base_k_factor: int = 32):
         """
         Initialize balancer
 
         Args:
-            k_factor: ELO K-factor (higher = more volatile ratings)
-                     32 is standard for amateur players
+            base_k_factor: Base ELO K-factor (higher = more volatile ratings)
+                          32 is standard for amateur players
         """
         self.players: Dict[str, Player] = {}
-        self.k_factor = k_factor
+        self.base_k_factor = base_k_factor
         self.pending_games: Dict[str, dict] = {}  # game_id -> game data
 
         # Supabase setup
         self.supabase: Optional[Client] = None
         self._init_supabase()
+
+    def _get_player_k_factor(self, player: Player) -> int:
+        """
+        Calcola K-factor individuale basato su ELO e partite giocate.
+        Giocatori nuovi/deboli hanno rating più volatili.
+        """
+        # Giocatori con poche partite hanno K più alto (rating più volatile)
+        if player.games_played < 10:
+            games_multiplier = 1.2
+        elif player.games_played < 20:
+            games_multiplier = 1.0
+        else:
+            games_multiplier = 0.85
+
+        # Giocatori con ELO basso hanno K più alto
+        if player.elo < 1400:
+            elo_multiplier = 1.2
+        elif player.elo < 1600:
+            elo_multiplier = 1.0
+        else:
+            elo_multiplier = 0.8
+
+        return int(self.base_k_factor * games_multiplier * elo_multiplier)
+
+    def _get_performance_weight(self, player_elo: int, team_avg_elo: int, won: bool) -> float:
+        """
+        Calcola peso performance basato su contributo alla squadra.
+
+        - Giocatore forte in squadra vincente → guadagna MENO (era atteso)
+        - Giocatore debole in squadra vincente → guadagna DI PIÙ (ha overperformato)
+        - Giocatore forte in squadra perdente → perde DI PIÙ (ha underperformato)
+        - Giocatore debole in squadra perdente → perde MENO (era atteso)
+        """
+        # Differenza dall'ELO medio della squadra (normalizzata)
+        diff = (player_elo - team_avg_elo) / 200  # 200 punti = 1 unità di differenza
+
+        if won:
+            # Vittoria: deboli guadagnano di più, forti di meno
+            weight = 1.0 - (diff * 0.15)  # ±15% per ogni 200 punti di differenza
+        else:
+            # Sconfitta: forti perdono di più, deboli di meno
+            weight = 1.0 + (diff * 0.15)  # ±15% per ogni 200 punti di differenza
+
+        # Limita tra 0.7 e 1.3
+        return max(0.7, min(1.3, weight))
 
     def _init_supabase(self):
         """Inizializza connessione Supabase se disponibile"""
@@ -274,14 +319,20 @@ class TeamBalancer:
         
         # Goal difference multiplier (bigger wins = bigger rating changes)
         goal_diff = abs(team1_score - team2_score)
-        multiplier = 1 + (goal_diff - 1) * 0.1  # +10% per goal difference
-        
-        # Update ratings
+        goal_multiplier = 1 + (goal_diff - 1) * 0.1  # +10% per goal difference
+
+        # Update ratings with individual K-factor and performance weighting
         rating_changes = []
-        
+
         for player in team1_players:
             old_elo = player.elo
-            change = self.k_factor * multiplier * (team1_result - expected1)
+            # K-factor individuale
+            k = self._get_player_k_factor(player)
+            # Peso performance (forte in squadra perdente perde di più, etc.)
+            perf_weight = self._get_performance_weight(player.elo, team1_avg_elo, team1_result == 1.0)
+            # Calcolo cambio rating
+            base_change = (team1_result - expected1)
+            change = k * goal_multiplier * perf_weight * base_change
             player.elo = int(player.elo + change)
             player.games_played += 1
             if team1_result == 1.0:
@@ -289,10 +340,16 @@ class TeamBalancer:
             elif team1_result == 0.0:
                 player.losses += 1
             rating_changes.append(f"  {player.name}: {old_elo} → {player.elo} ({change:+.0f})")
-        
+
         for player in team2_players:
             old_elo = player.elo
-            change = self.k_factor * multiplier * (team2_result - expected2)
+            # K-factor individuale
+            k = self._get_player_k_factor(player)
+            # Peso performance
+            perf_weight = self._get_performance_weight(player.elo, team2_avg_elo, team2_result == 1.0)
+            # Calcolo cambio rating
+            base_change = (team2_result - expected2)
+            change = k * goal_multiplier * perf_weight * base_change
             player.elo = int(player.elo + change)
             player.games_played += 1
             if team2_result == 1.0:
@@ -583,14 +640,20 @@ class TeamBalancer:
 
         # Moltiplicatore differenza gol
         goal_diff = abs(team1_score - team2_score)
-        multiplier = 1 + (goal_diff - 1) * 0.1
+        goal_multiplier = 1 + (goal_diff - 1) * 0.1
 
-        # Aggiorna rating
+        # Aggiorna rating con K-factor individuale e peso performance
         rating_changes = []
 
         for player in team1_players:
             old_elo = player.elo
-            change = self.k_factor * multiplier * (team1_result - expected1)
+            # K-factor individuale
+            k = self._get_player_k_factor(player)
+            # Peso performance
+            perf_weight = self._get_performance_weight(player.elo, team1_avg_elo, team1_result == 1.0)
+            # Calcolo cambio rating
+            base_change = (team1_result - expected1)
+            change = k * goal_multiplier * perf_weight * base_change
             player.elo = int(player.elo + change)
             player.games_played += 1
             if team1_result == 1.0:
@@ -601,7 +664,13 @@ class TeamBalancer:
 
         for player in team2_players:
             old_elo = player.elo
-            change = self.k_factor * multiplier * (team2_result - expected2)
+            # K-factor individuale
+            k = self._get_player_k_factor(player)
+            # Peso performance
+            perf_weight = self._get_performance_weight(player.elo, team2_avg_elo, team2_result == 1.0)
+            # Calcolo cambio rating
+            base_change = (team2_result - expected2)
+            change = k * goal_multiplier * perf_weight * base_change
             player.elo = int(player.elo + change)
             player.games_played += 1
             if team2_result == 1.0:
