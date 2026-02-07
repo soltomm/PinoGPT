@@ -36,6 +36,9 @@ balancer.load_from_file()
 # Memorizza timestamp partite per promemoria del giorno dopo
 game_reminders = {}
 
+# Memorizza stato conversazione per registrazione manuale partite
+manual_game_sessions = {}  # phone_number -> {'step': ..., 'team1': [], 'team2': [], ...}
+
 # Scheduler per invio promemoria
 scheduler = BackgroundScheduler()
 scheduler.start()
@@ -153,8 +156,10 @@ def handle_message(incoming_message: str, from_number: str) -> str:
 • *rimuovi [nome]* - Rimuovi giocatore
 • *squadre* - Crea squadre bilanciate
 • *risultato* - Registra il risultato della partita
+• *registra* - Registra partita manuale (squadre + punteggio)
 • *classifica* - Mostra la classifica
 • *inattesa* - Mostra le partite non registrate
+• *storico* - Mostra le ultime partite giocate
 • *stats [nome]* - Mostra statistiche giocatore
 • *aiuto* - Mostra questo messaggio
 
@@ -162,6 +167,8 @@ def handle_message(incoming_message: str, from_number: str) -> str:
 1️⃣ Aggiungi tutti i giocatori con voti 1-10
 2️⃣ Scrivi "squadre" poi elenca 10 nomi
 3️⃣ Il giorno dopo, scrivi "risultato" poi il punteggio
+
+_Oppure usa "registra" per inserire partite passate!_
 """
     
     # Comando: Classifica
@@ -171,6 +178,10 @@ def handle_message(incoming_message: str, from_number: str) -> str:
     # Comando: Partite in attesa
     elif message in ['inattesa', 'pending', 'partite']:
         return balancer.get_pending_games()
+
+    # Comando: Storico partite
+    elif message in ['storico', 'history', 'cronologia']:
+        return balancer.get_game_history()
 
     # Comando: Statistiche giocatore
     elif message.startswith('stats '):
@@ -187,6 +198,80 @@ Sconfitte: {player.losses}
 Percentuale Vittorie: {win_rate:.1f}%
 """
         return f"❌ Giocatore '{player_name}' non trovato"
+
+    # Comando: Registra partita manuale
+    elif message in ['registra', 'manual', 'manuale']:
+        # Inizia sessione registrazione manuale
+        manual_game_sessions[from_number] = {'step': 'team1'}
+        return """📝 *REGISTRAZIONE PARTITA MANUALE*
+
+Inserisci i 5 giocatori del *Team 1* (🔵).
+
+Formati accettati:
+• Un nome per riga
+• Separati da virgola
+
+Invia i nomi adesso! 👇"""
+
+    # Gestione sessione registrazione manuale
+    elif from_number in manual_game_sessions:
+        session = manual_game_sessions[from_number]
+
+        # Comando annulla
+        if message in ['annulla', 'cancel', 'esci']:
+            del manual_game_sessions[from_number]
+            return "❌ Registrazione annullata."
+
+        # Step 1: Team 1
+        if session['step'] == 'team1':
+            names = balancer.parse_participant_list(incoming_message)
+            if len(names) == 5:
+                session['team1'] = names
+                session['step'] = 'team2'
+                return f"""✅ Team 1 registrato: {', '.join(names)}
+
+Ora inserisci i 5 giocatori del *Team 2* (🔴).
+
+Invia i nomi adesso! 👇"""
+            else:
+                return f"❌ Servono 5 giocatori per il Team 1, ne hai inseriti {len(names)}.\n\nRiprova o scrivi *annulla* per uscire."
+
+        # Step 2: Team 2
+        elif session['step'] == 'team2':
+            names = balancer.parse_participant_list(incoming_message)
+            if len(names) == 5:
+                session['team2'] = names
+                session['step'] = 'score'
+                return f"""✅ Team 2 registrato: {', '.join(names)}
+
+*Riepilogo:*
+🔵 Team 1: {', '.join(session['team1'])}
+🔴 Team 2: {', '.join(names)}
+
+Inserisci il *risultato* (es. 5-3):
+👇"""
+            else:
+                return f"❌ Servono 5 giocatori per il Team 2, ne hai inseriti {len(names)}.\n\nRiprova o scrivi *annulla* per uscire."
+
+        # Step 3: Score
+        elif session['step'] == 'score':
+            score = balancer.parse_score(incoming_message)
+            if score:
+                team1_score, team2_score = score
+                # Registra la partita
+                result = balancer.record_manual_game(
+                    session['team1'],
+                    session['team2'],
+                    team1_score,
+                    team2_score
+                )
+                # Salva dati
+                balancer.save_to_file()
+                # Pulisci sessione
+                del manual_game_sessions[from_number]
+                return result
+            else:
+                return "❌ Formato risultato non valido.\n\nUsa: 5-3 oppure 3 2\n\nRiprova o scrivi *annulla* per uscire."
 
     # Comando: Squadre (inizia selezione squadre)
     elif message in ['squadre', 'teams', 'team', 'crea squadre']:

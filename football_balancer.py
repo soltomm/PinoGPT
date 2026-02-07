@@ -301,17 +301,29 @@ class TeamBalancer:
                 player.losses += 1
             rating_changes.append(f"  {player.name}: {old_elo} → {player.elo} ({change:+.0f})")
         
+        # Salva nello storico partite
+        self._save_game_history(
+            game_id=game_id,
+            team1=game['team1'],
+            team2=game['team2'],
+            team1_score=team1_score,
+            team2_score=team2_score,
+            team1_avg_elo=int(team1_avg_elo),
+            team2_avg_elo=int(team2_avg_elo),
+            winner=winner
+        )
+
         # Remove from pending
         del self.pending_games[game_id]
-        
+
         # Format message
-        message = f"📊 *GAME RESULT RECORDED*\n\n"
+        message = f"📊 *RISULTATO REGISTRATO*\n\n"
         message += f"🔵 Team 1: {team1_score}\n"
         message += f"🔴 Team 2: {team2_score}\n"
-        message += f"🏆 Winner: {winner}\n\n"
-        message += f"*Rating Changes:*\n"
+        message += f"🏆 Vincitore: {winner}\n\n"
+        message += f"*Cambi di Rating:*\n"
         message += "\n".join(rating_changes)
-        
+
         return message
     
     def get_leaderboard(self, limit: int = 10) -> str:
@@ -462,6 +474,170 @@ class TeamBalancer:
                 self.supabase.table('players').delete().eq('name', name).execute()
             except Exception as e:
                 print(f"Errore eliminazione da Supabase: {e}")
+
+    def _save_game_history(self, game_id: str, team1: list, team2: list,
+                          team1_score: int, team2_score: int,
+                          team1_avg_elo: int, team2_avg_elo: int, winner: str):
+        """Salva risultato partita nello storico"""
+        if self.supabase:
+            try:
+                self.supabase.table('game_history').insert({
+                    'game_id': game_id,
+                    'team1': team1,
+                    'team2': team2,
+                    'team1_score': team1_score,
+                    'team2_score': team2_score,
+                    'team1_avg_elo': team1_avg_elo,
+                    'team2_avg_elo': team2_avg_elo,
+                    'winner': winner
+                }).execute()
+                print(f"✅ Partita {game_id} salvata nello storico")
+            except Exception as e:
+                print(f"❌ Errore salvataggio storico partita: {e}")
+
+    def get_game_history(self, limit: int = 10) -> str:
+        """Ottieni storico ultime partite"""
+        if not self.supabase:
+            return "❌ Storico non disponibile (Supabase non connesso)"
+
+        try:
+            result = self.supabase.table('game_history').select('*').order(
+                'played_at', desc=True
+            ).limit(limit).execute()
+
+            if not result.data:
+                return "📜 Nessuna partita nello storico"
+
+            message = f"📜 *ULTIME {len(result.data)} PARTITE*\n\n"
+            for game in result.data:
+                date = game.get('played_at', '')[:10] if game.get('played_at') else 'N/A'
+                message += f"📅 {date}\n"
+                message += f"🔵 {', '.join(game['team1'][:3])}... vs 🔴 {', '.join(game['team2'][:3])}...\n"
+                message += f"⚽ {game['team1_score']} - {game['team2_score']} | 🏆 {game['winner']}\n\n"
+
+            return message
+
+        except Exception as e:
+            print(f"Errore lettura storico: {e}")
+            return "❌ Errore nel recupero storico partite"
+
+    def record_manual_game(self, team1_names: List[str], team2_names: List[str],
+                           team1_score: int, team2_score: int) -> str:
+        """
+        Registra una partita manuale con squadre e risultato già definiti.
+        Aggiorna i rating dei giocatori e salva nello storico.
+
+        Args:
+            team1_names: Lista nomi giocatori Team 1
+            team2_names: Lista nomi giocatori Team 2
+            team1_score: Gol segnati dal Team 1
+            team2_score: Gol segnati dal Team 2
+        """
+        # Verifica che ci siano 5 giocatori per squadra
+        if len(team1_names) != 5 or len(team2_names) != 5:
+            return f"❌ Ogni squadra deve avere 5 giocatori. Team 1: {len(team1_names)}, Team 2: {len(team2_names)}"
+
+        # Trova tutti i giocatori
+        team1_players = []
+        team2_players = []
+        missing = []
+
+        for name in team1_names:
+            player = self._find_player(name)
+            if player:
+                team1_players.append(player)
+            else:
+                missing.append(name)
+
+        for name in team2_names:
+            player = self._find_player(name)
+            if player:
+                team2_players.append(player)
+            else:
+                missing.append(name)
+
+        if missing:
+            return f"❌ Giocatori non trovati: {', '.join(missing)}\nAggiungili prima con: aggiungi [nome] [voto]"
+
+        # Determina esito partita
+        if team1_score > team2_score:
+            team1_result = 1.0
+            team2_result = 0.0
+            winner = "Team 1"
+        elif team2_score > team1_score:
+            team1_result = 0.0
+            team2_result = 1.0
+            winner = "Team 2"
+        else:
+            team1_result = 0.5
+            team2_result = 0.5
+            winner = "Pareggio"
+
+        # Calcola ELO medio
+        team1_avg_elo = sum(p.elo for p in team1_players) / len(team1_players)
+        team2_avg_elo = sum(p.elo for p in team2_players) / len(team2_players)
+
+        # Expected scores usando formula ELO
+        expected1 = 1 / (1 + 10 ** ((team2_avg_elo - team1_avg_elo) / 400))
+        expected2 = 1 / (1 + 10 ** ((team1_avg_elo - team2_avg_elo) / 400))
+
+        # Moltiplicatore differenza gol
+        goal_diff = abs(team1_score - team2_score)
+        multiplier = 1 + (goal_diff - 1) * 0.1
+
+        # Aggiorna rating
+        rating_changes = []
+
+        for player in team1_players:
+            old_elo = player.elo
+            change = self.k_factor * multiplier * (team1_result - expected1)
+            player.elo = int(player.elo + change)
+            player.games_played += 1
+            if team1_result == 1.0:
+                player.wins += 1
+            elif team1_result == 0.0:
+                player.losses += 1
+            rating_changes.append(f"  {player.name}: {old_elo} → {player.elo} ({change:+.0f})")
+
+        for player in team2_players:
+            old_elo = player.elo
+            change = self.k_factor * multiplier * (team2_result - expected2)
+            player.elo = int(player.elo + change)
+            player.games_played += 1
+            if team2_result == 1.0:
+                player.wins += 1
+            elif team2_result == 0.0:
+                player.losses += 1
+            rating_changes.append(f"  {player.name}: {old_elo} → {player.elo} ({change:+.0f})")
+
+        # Genera game_id
+        game_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_manual"
+
+        # Salva nello storico
+        self._save_game_history(
+            game_id=game_id,
+            team1=[p.name for p in team1_players],
+            team2=[p.name for p in team2_players],
+            team1_score=team1_score,
+            team2_score=team2_score,
+            team1_avg_elo=int(team1_avg_elo),
+            team2_avg_elo=int(team2_avg_elo),
+            winner=winner
+        )
+
+        # Formato messaggio risposta
+        message = f"📊 *PARTITA REGISTRATA*\n\n"
+        message += f"🔵 *Team 1* ({int(team1_avg_elo)} ELO): {team1_score}\n"
+        for p in team1_players:
+            message += f"  • {p.name}\n"
+        message += f"\n🔴 *Team 2* ({int(team2_avg_elo)} ELO): {team2_score}\n"
+        for p in team2_players:
+            message += f"  • {p.name}\n"
+        message += f"\n🏆 Vincitore: {winner}\n\n"
+        message += f"*Cambi di Rating:*\n"
+        message += "\n".join(rating_changes)
+
+        return message
 
 
 # Example usage and testing
