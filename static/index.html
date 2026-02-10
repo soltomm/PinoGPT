@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PinoGPT - Football Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-brand">
+            <span class="brand-icon">&#9917;</span>
+            <span class="brand-text">PinoGPT</span>
+        </div>
+        <div class="nav-links">
+            <a href="#" class="nav-link active" data-tab="leaderboard">Classifica</a>
+            <a href="#" class="nav-link" data-tab="players">Giocatori</a>
+            <a href="#" class="nav-link" data-tab="teams">Squadre</a>
+            <a href="#" class="nav-link" data-tab="games">Partite</a>
+            <a href="#" class="nav-link" data-tab="history">Storico</a>
+        </div>
+        <button class="nav-hamburger" id="hamburger">&#9776;</button>
+    </nav>
+
+    <!-- Mobile menu -->
+    <div class="mobile-menu" id="mobileMenu">
+        <a href="#" class="mobile-link" data-tab="leaderboard">Classifica</a>
+        <a href="#" class="mobile-link" data-tab="players">Giocatori</a>
+        <a href="#" class="mobile-link" data-tab="teams">Squadre</a>
+        <a href="#" class="mobile-link" data-tab="games">Partite</a>
+        <a href="#" class="mobile-link" data-tab="history">Storico</a>
+    </div>
+
+    <main class="container">
+        <!-- Toast notifications -->
+        <div id="toast" class="toast hidden"></div>
+
+        <!-- LEADERBOARD TAB -->
+        <section id="tab-leaderboard" class="tab-content active">
+            <div class="section-header">
+                <h2>Classifica</h2>
+                <button class="btn btn-sm" onclick="loadPlayers()">Aggiorna</button>
+            </div>
+            <div class="card">
+                <table class="table" id="leaderboardTable">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Giocatore</th>
+                            <th>ELO</th>
+                            <th>Partite</th>
+                            <th>V</th>
+                            <th>S</th>
+                            <th>Win %</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                <p class="empty-state" id="leaderboardEmpty">Nessun giocatore registrato</p>
+            </div>
+        </section>
+
+        <!-- PLAYERS TAB -->
+        <section id="tab-players" class="tab-content">
+            <div class="section-header">
+                <h2>Gestione Giocatori</h2>
+            </div>
+
+            <!-- Add player form -->
+            <div class="card">
+                <h3>Aggiungi Giocatore</h3>
+                <form id="addPlayerForm" class="form-row">
+                    <div class="form-group">
+                        <label for="playerName">Nome</label>
+                        <input type="text" id="playerName" placeholder="Nome giocatore" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="playerVote">Voto (1-10): <span id="voteDisplay">5</span></label>
+                        <input type="range" id="playerVote" min="1" max="10" value="5">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Aggiungi</button>
+                </form>
+            </div>
+
+            <!-- Player list -->
+            <div class="card">
+                <h3>Tutti i Giocatori</h3>
+                <div id="playerList" class="player-grid"></div>
+                <p class="empty-state" id="playersEmpty">Nessun giocatore registrato</p>
+            </div>
+        </section>
+
+        <!-- TEAMS TAB -->
+        <section id="tab-teams" class="tab-content">
+            <div class="section-header">
+                <h2>Crea Squadre</h2>
+            </div>
+
+            <div class="card">
+                <h3>Seleziona 10 Giocatori</h3>
+                <p class="hint">Selezionati: <span id="selectedCount">0</span>/10</p>
+                <div id="playerCheckboxes" class="checkbox-grid"></div>
+                <button class="btn btn-primary" id="createTeamsBtn" disabled onclick="createTeams()">
+                    Crea Squadre Bilanciate
+                </button>
+            </div>
+
+            <!-- Teams result -->
+            <div class="card hidden" id="teamsResult">
+                <h3>Squadre Generate</h3>
+                <div class="teams-display">
+                    <div class="team-card team-blue">
+                        <h4>Team 1</h4>
+                        <p class="team-elo">ELO medio: <span id="team1Elo"></span></p>
+                        <ul id="team1List"></ul>
+                    </div>
+                    <div class="vs-badge">VS</div>
+                    <div class="team-card team-red">
+                        <h4>Team 2</h4>
+                        <p class="team-elo">ELO medio: <span id="team2Elo"></span></p>
+                        <ul id="team2List"></ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- GAMES TAB (Pending + Record) -->
+        <section id="tab-games" class="tab-content">
+            <div class="section-header">
+                <h2>Partite in Attesa</h2>
+                <button class="btn btn-sm" onclick="loadPendingGames()">Aggiorna</button>
+            </div>
+
+            <div id="pendingGamesContainer"></div>
+            <p class="empty-state" id="pendingEmpty">Nessuna partita in attesa</p>
+
+            <hr class="divider">
+
+            <!-- Manual game recording -->
+            <div class="section-header">
+                <h2>Registra Partita Manuale</h2>
+            </div>
+            <div class="card">
+                <h3>Seleziona Giocatori</h3>
+                <p class="hint">Clicca una volta per Team 1 (blu), due volte per Team 2 (rosso), tre volte per deselezionare.</p>
+                <div id="manualPlayerPicker" class="checkbox-grid"></div>
+                <div class="manual-summary">
+                    <div class="manual-team-preview">
+                        <div>
+                            <strong style="color:var(--accent-blue)">Team 1</strong>
+                            (<span id="manualT1Count">0</span>/5)
+                            <div id="manualT1Names" class="team-name-list"></div>
+                        </div>
+                        <div>
+                            <strong style="color:var(--accent-red)">Team 2</strong>
+                            (<span id="manualT2Count">0</span>/5)
+                            <div id="manualT2Names" class="team-name-list"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="score-inputs">
+                    <div class="form-group">
+                        <label>Gol Team 1</label>
+                        <input type="number" id="manualScore1" min="0" max="99" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Gol Team 2</label>
+                        <input type="number" id="manualScore2" min="0" max="99" value="0">
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="recordManualGame()">Registra Partita</button>
+            </div>
+        </section>
+
+        <!-- HISTORY TAB -->
+        <section id="tab-history" class="tab-content">
+            <div class="section-header">
+                <h2>Storico Partite</h2>
+                <button class="btn btn-sm" onclick="loadHistory()">Aggiorna</button>
+            </div>
+            <div id="historyContainer"></div>
+            <p class="empty-state" id="historyEmpty">Nessuna partita nello storico</p>
+        </section>
+    </main>
+
+    <!-- Player detail modal -->
+    <div class="modal-overlay hidden" id="playerModal">
+        <div class="modal">
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+            <h3 id="modalPlayerName"></h3>
+            <div class="modal-stats">
+                <div class="stat-item">
+                    <span class="stat-label">ELO</span>
+                    <span class="stat-value" id="modalElo"></span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Partite</span>
+                    <span class="stat-value" id="modalGames"></span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Vittorie</span>
+                    <span class="stat-value" id="modalWins"></span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Sconfitte</span>
+                    <span class="stat-value" id="modalLosses"></span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Win Rate</span>
+                    <span class="stat-value" id="modalWinRate"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

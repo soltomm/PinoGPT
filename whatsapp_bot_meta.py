@@ -16,7 +16,7 @@ load_dotenv()
 
 import requests
 from datetime import datetime, timedelta
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, request, jsonify, make_response, send_from_directory
 from apscheduler.schedulers.background import BackgroundScheduler
 from football_balancer import TeamBalancer
 
@@ -450,6 +450,127 @@ def stats():
             for p in sorted(balancer.players.values(), key=lambda x: x.elo, reverse=True)[:5]
         ]
     })
+
+
+# ============================================================
+# WEB DASHBOARD API ENDPOINTS
+# ============================================================
+
+@app.route('/')
+def dashboard():
+    """Serve the web dashboard"""
+    return send_from_directory('static', 'index.html')
+
+
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    """Serve static files"""
+    return send_from_directory('static', filename)
+
+
+@app.route('/api/players', methods=['GET'])
+def api_get_players():
+    """Get all players sorted by ELO"""
+    return jsonify(balancer.get_players_data())
+
+
+@app.route('/api/players/<name>', methods=['GET'])
+def api_get_player(name):
+    """Get single player stats"""
+    player = balancer._find_player(name)
+    if not player:
+        return jsonify({'error': f"Giocatore '{name}' non trovato"}), 404
+    win_rate = (player.wins / player.games_played * 100) if player.games_played > 0 else 0
+    data = player.to_dict()
+    data['win_rate'] = round(win_rate, 1)
+    return jsonify(data)
+
+
+@app.route('/api/players', methods=['POST'])
+def api_add_player():
+    """Add a new player"""
+    data = request.get_json()
+    if not data or 'name' not in data or 'vote' not in data:
+        return jsonify({'error': 'Richiesti: name, vote'}), 400
+    try:
+        vote = int(data['vote'])
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Il voto deve essere un numero da 1 a 10'}), 400
+    result = balancer.add_player(data['name'], vote)
+    balancer.save_to_file()
+    success = result.startswith('✅')
+    return jsonify({'message': result, 'success': success}), 200 if success else 400
+
+
+@app.route('/api/players/<name>', methods=['DELETE'])
+def api_remove_player(name):
+    """Remove a player"""
+    result = balancer.remove_player(name)
+    balancer.save_to_file()
+    success = result.startswith('✅')
+    return jsonify({'message': result, 'success': success}), 200 if success else 404
+
+
+@app.route('/api/games/pending', methods=['GET'])
+def api_pending_games():
+    """Get pending games"""
+    return jsonify(balancer.get_pending_games_data())
+
+
+@app.route('/api/games/history', methods=['GET'])
+def api_game_history():
+    """Get game history"""
+    limit = request.args.get('limit', 20, type=int)
+    return jsonify(balancer.get_game_history_data(limit))
+
+
+@app.route('/api/games/create-teams', methods=['POST'])
+def api_create_teams():
+    """Create balanced teams from 10 player names"""
+    data = request.get_json()
+    if not data or 'players' not in data:
+        return jsonify({'error': 'Richiesto: players (lista di 10 nomi)'}), 400
+    names = data['players']
+    teams, message = balancer.create_teams(names)
+    if teams:
+        balancer.save_to_file()
+        return jsonify({'success': True, 'teams': teams, 'message': message})
+    return jsonify({'success': False, 'message': message}), 400
+
+
+@app.route('/api/games/record-score', methods=['POST'])
+def api_record_score():
+    """Record score for a pending game"""
+    data = request.get_json()
+    if not data or 'game_id' not in data or 'team1_score' not in data or 'team2_score' not in data:
+        return jsonify({'error': 'Richiesti: game_id, team1_score, team2_score'}), 400
+    try:
+        t1 = int(data['team1_score'])
+        t2 = int(data['team2_score'])
+    except (ValueError, TypeError):
+        return jsonify({'error': 'I punteggi devono essere numeri'}), 400
+    result = balancer.update_ratings(data['game_id'], t1, t2)
+    balancer.save_to_file()
+    success = not result.startswith('❌')
+    return jsonify({'message': result, 'success': success}), 200 if success else 400
+
+
+@app.route('/api/games/manual', methods=['POST'])
+def api_manual_game():
+    """Record a manual game"""
+    data = request.get_json()
+    required = ['team1', 'team2', 'team1_score', 'team2_score']
+    if not data or not all(k in data for k in required):
+        return jsonify({'error': f'Richiesti: {", ".join(required)}'}), 400
+    try:
+        t1 = int(data['team1_score'])
+        t2 = int(data['team2_score'])
+    except (ValueError, TypeError):
+        return jsonify({'error': 'I punteggi devono essere numeri'}), 400
+    result = balancer.record_manual_game(data['team1'], data['team2'], t1, t2)
+    balancer.save_to_file()
+    success = not result.startswith('❌')
+    return jsonify({'message': result, 'success': success}), 200 if success else 400
 
 
 if __name__ == '__main__':

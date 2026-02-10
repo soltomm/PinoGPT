@@ -434,7 +434,7 @@ class TeamBalancer:
         data = {
             'players': {name: player.to_dict() for name, player in self.players.items()},
             'pending_games': self.pending_games,
-            'k_factor': self.k_factor
+            'k_factor': self.base_k_factor
         }
         with open(filename, 'w') as f:
             json.dump(data, f, indent=2)
@@ -495,7 +495,7 @@ class TeamBalancer:
             self.players = {name: Player.from_dict(pdata)
                           for name, pdata in data['players'].items()}
             self.pending_games = data.get('pending_games', {})
-            self.k_factor = data.get('k_factor', 32)
+            self.base_k_factor = data.get('k_factor', 32)
             return True
         except FileNotFoundError:
             return False
@@ -551,6 +551,45 @@ class TeamBalancer:
                 print(f"✅ Partita {game_id} salvata nello storico")
             except Exception as e:
                 print(f"❌ Errore salvataggio storico partita: {e}")
+
+    def get_players_data(self) -> list:
+        """Return all players as list of dicts, sorted by ELO descending"""
+        sorted_players = sorted(self.players.values(), key=lambda p: p.elo, reverse=True)
+        result = []
+        for i, player in enumerate(sorted_players, 1):
+            win_rate = (player.wins / player.games_played * 100) if player.games_played > 0 else 0
+            d = player.to_dict()
+            d['rank'] = i
+            d['win_rate'] = round(win_rate, 1)
+            result.append(d)
+        return result
+
+    def get_game_history_data(self, limit: int = 10) -> list:
+        """Return game history as list of dicts (structured data)"""
+        if not self.supabase:
+            return []
+        try:
+            result = self.supabase.table('game_history').select('*').order(
+                'played_at', desc=True
+            ).limit(limit).execute()
+            return result.data if result.data else []
+        except Exception as e:
+            print(f"Error reading game history: {e}")
+            return []
+
+    def get_pending_games_data(self) -> list:
+        """Return pending games as list of dicts"""
+        result = []
+        for game_id, game in self.pending_games.items():
+            result.append({
+                'game_id': game_id,
+                'team1': game['team1'],
+                'team2': game['team2'],
+                'team1_avg_elo': game.get('team1_avg_elo', 0),
+                'team2_avg_elo': game.get('team2_avg_elo', 0),
+                'timestamp': game.get('timestamp', '')
+            })
+        return result
 
     def get_game_history(self, limit: int = 10) -> str:
         """Ottieni storico ultime partite"""
