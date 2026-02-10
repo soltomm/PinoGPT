@@ -19,7 +19,6 @@ function setupNavigation() {
             e.preventDefault();
             const tab = link.dataset.tab;
             switchTab(tab);
-            // Close mobile menu
             document.getElementById('mobileMenu').classList.remove('open');
         });
     });
@@ -30,15 +29,13 @@ function setupNavigation() {
 }
 
 function switchTab(tab) {
-    // Update nav links
     document.querySelectorAll('.nav-link, .mobile-link').forEach(l => l.classList.remove('active'));
     document.querySelectorAll(`[data-tab="${tab}"]`).forEach(l => l.classList.add('active'));
 
-    // Show tab content
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-    document.getElementById(`tab-${tab}`).classList.add('active');
+    const target = document.getElementById(`tab-${tab}`);
+    target.classList.add('active');
 
-    // Load data for tab
     if (tab === 'leaderboard' || tab === 'players' || tab === 'teams') loadPlayers();
     if (tab === 'games') { loadPendingGames(); loadPlayers(); }
     if (tab === 'history') loadHistory();
@@ -46,14 +43,12 @@ function switchTab(tab) {
 
 // ---- FORMS ----
 function setupForms() {
-    // Vote slider display
     const voteSlider = document.getElementById('playerVote');
     const voteDisplay = document.getElementById('voteDisplay');
     voteSlider.addEventListener('input', () => {
         voteDisplay.textContent = voteSlider.value;
     });
 
-    // Add player form
     document.getElementById('addPlayerForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const name = document.getElementById('playerName').value.trim();
@@ -71,7 +66,6 @@ function setupForms() {
             showToast(res.message || res.error, 'error');
         }
     });
-
 }
 
 // Tri-state picker state: maps player name -> 'none' | 'team1' | 'team2'
@@ -88,6 +82,17 @@ function updateManualCounts() {
 
 function getManualTeam(team) {
     return Object.entries(manualPickState).filter(([,v]) => v === team).map(([k]) => k);
+}
+
+// ---- LOADING HELPERS ----
+function showLoading(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('hidden');
+}
+
+function hideLoading(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('hidden');
 }
 
 // ---- API HELPERS ----
@@ -127,7 +132,16 @@ async function apiDelete(url) {
 
 // ---- LOAD PLAYERS ----
 async function loadPlayers() {
+    showLoading('leaderboardLoading');
+    showLoading('playersLoading');
+    showLoading('teamsLoading');
+
     const players = await apiFetch('/api/players');
+
+    hideLoading('leaderboardLoading');
+    hideLoading('playersLoading');
+    hideLoading('teamsLoading');
+
     if (!players) return;
     allPlayers = players;
 
@@ -148,11 +162,11 @@ function renderLeaderboard(players) {
     }
     empty.classList.add('hidden');
 
-    tbody.innerHTML = players.map(p => {
+    tbody.innerHTML = players.map((p, i) => {
         const rankClass = p.rank <= 3 ? `rank-${p.rank}` : '';
         const rankIcon = p.rank === 1 ? '&#129351;' : p.rank === 2 ? '&#129352;' : p.rank === 3 ? '&#129353;' : p.rank;
         const eloClass = p.elo >= 1600 ? 'elo-high' : p.elo >= 1300 ? 'elo-mid' : 'elo-low';
-        return `<tr onclick="showPlayerModal('${escapeHtml(p.name)}')">
+        return `<tr class="stagger-in" style="animation-delay:${i * 30}ms" onclick="showPlayerModal('${escapeHtml(p.name)}')">
             <td class="${rankClass}">${rankIcon}</td>
             <td><strong>${escapeHtml(p.name)}</strong></td>
             <td><span class="elo-badge ${eloClass}">${p.elo}</span></td>
@@ -175,8 +189,8 @@ function renderPlayerList(players) {
     }
     empty.classList.add('hidden');
 
-    container.innerHTML = players.map(p => `
-        <div class="player-card" onclick="showPlayerModal('${escapeHtml(p.name)}')">
+    container.innerHTML = players.map((p, i) => `
+        <div class="player-card stagger-in" style="animation-delay:${i * 40}ms" onclick="showPlayerModal('${escapeHtml(p.name)}')">
             <div class="player-card-info">
                 <span class="player-card-name">${escapeHtml(p.name)}</span>
                 <span class="player-card-meta">ELO ${p.elo} &middot; ${p.games_played} partite &middot; ${p.win_rate}% vittorie</span>
@@ -204,10 +218,8 @@ function updateCheckboxSelection(cb) {
     document.getElementById('selectedCount').textContent = count;
     document.getElementById('createTeamsBtn').disabled = count !== 10;
 
-    // Toggle selected style
     cb.closest('.checkbox-item').classList.toggle('selected', cb.checked);
 
-    // Disable unchecked if 10 selected
     document.querySelectorAll('#playerCheckboxes input').forEach(input => {
         if (!input.checked) {
             input.disabled = count >= 10;
@@ -217,7 +229,6 @@ function updateCheckboxSelection(cb) {
 
 function renderManualPicker(players) {
     const container = document.getElementById('manualPlayerPicker');
-    // Preserve existing state, reset removed players
     const oldState = { ...manualPickState };
     manualPickState = {};
     players.forEach(p => {
@@ -244,7 +255,6 @@ function cycleManualPick(el) {
 
     let next;
     if (current === 'none') {
-        // Try team1 first, skip to team2 if full, skip entirely if both full
         next = t1Count < 5 ? 'team1' : t2Count < 5 ? 'team2' : 'none';
     } else if (current === 'team1') {
         next = t2Count < 5 ? 'team2' : 'none';
@@ -254,7 +264,6 @@ function cycleManualPick(el) {
 
     manualPickState[name] = next;
 
-    // Update element
     el.className = 'checkbox-item' + (next !== 'none' ? ' ' + next : '');
     const indicator = el.querySelector('.pick-indicator');
     indicator.textContent = next === 'team1' ? 'T1' : next === 'team2' ? 'T2' : '';
@@ -264,13 +273,18 @@ function cycleManualPick(el) {
 
 // ---- REMOVE PLAYER ----
 async function removePlayer(name) {
-    if (!confirm(`Rimuovere ${name}?`)) return;
-    const res = await apiDelete(`/api/players/${encodeURIComponent(name)}`);
+    const password = prompt(`Password admin per rimuovere ${name}:`);
+    if (password === null) return;
+    const res = await fetch(`/api/players/${encodeURIComponent(name)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+    }).then(r => r.json()).catch(() => ({ success: false, error: 'Errore di connessione' }));
     if (res.success) {
         showToast(res.message, 'success');
         loadPlayers();
     } else {
-        showToast(res.message || res.error, 'error');
+        showToast(res.error || res.message || 'Password errata', 'error');
     }
 }
 
@@ -316,7 +330,10 @@ function displayTeams(teams) {
 
 // ---- PENDING GAMES ----
 async function loadPendingGames() {
+    showLoading('pendingLoading');
     const games = await apiFetch('/api/games/pending');
+    hideLoading('pendingLoading');
+
     if (!games) return;
 
     const container = document.getElementById('pendingGamesContainer');
@@ -401,7 +418,6 @@ async function recordManualGame() {
 
     if (res.success) {
         showToast('Partita registrata!', 'success');
-        // Reset picker state
         manualPickState = {};
         document.getElementById('manualScore1').value = 0;
         document.getElementById('manualScore2').value = 0;
@@ -413,7 +429,10 @@ async function recordManualGame() {
 
 // ---- HISTORY ----
 async function loadHistory() {
+    showLoading('historyLoading');
     const games = await apiFetch('/api/games/history');
+    hideLoading('historyLoading');
+
     if (!games) return;
 
     const container = document.getElementById('historyContainer');
@@ -426,14 +445,14 @@ async function loadHistory() {
     }
     empty.classList.add('hidden');
 
-    container.innerHTML = games.map(g => {
+    container.innerHTML = games.map((g, i) => {
         const date = g.played_at ? new Date(g.played_at).toLocaleDateString('it-IT') : 'N/A';
         const winnerClass = g.winner === 'Team 1' ? 'winner-team1'
             : g.winner === 'Team 2' ? 'winner-team2'
             : 'winner-draw';
         const winnerLabel = g.winner === 'Draw' ? 'Pareggio' : g.winner;
         return `
-        <div class="history-card">
+        <div class="history-card stagger-in" style="animation-delay:${i * 40}ms">
             <span class="history-date">${date}</span>
             <div class="history-teams">
                 <span style="color:var(--accent-blue)">${g.team1.map(n => escapeHtml(n)).join(', ')}</span>
@@ -452,11 +471,30 @@ function showPlayerModal(name) {
     if (!player) return;
 
     document.getElementById('modalPlayerName').textContent = player.name;
-    document.getElementById('modalElo').textContent = player.elo;
     document.getElementById('modalGames').textContent = player.games_played;
     document.getElementById('modalWins').textContent = player.wins;
     document.getElementById('modalLosses').textContent = player.losses;
     document.getElementById('modalWinRate').textContent = player.win_rate + '%';
+
+    // ELO bar
+    document.getElementById('modalEloValue').textContent = player.elo;
+    const bar = document.getElementById('modalEloBar');
+    const pct = Math.min(Math.max((player.elo - 800) / 1200 * 100, 0), 100);
+    bar.style.width = '0%';
+    // Animate after a frame
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            bar.style.width = pct + '%';
+        });
+    });
+    // Color based on ELO tier
+    if (player.elo >= 1600) {
+        bar.style.background = 'linear-gradient(90deg, var(--accent-green-dim), var(--accent-green))';
+    } else if (player.elo >= 1300) {
+        bar.style.background = 'linear-gradient(90deg, #3b82f6, var(--accent-blue))';
+    } else {
+        bar.style.background = 'linear-gradient(90deg, #ef4444, var(--accent-red))';
+    }
 
     document.getElementById('playerModal').classList.remove('hidden');
 }
@@ -476,15 +514,22 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ---- TOAST ----
+let toastTimer = null;
 function showToast(message, type) {
     const toast = document.getElementById('toast');
-    // Strip emoji prefixes from API messages
+    // Clear any existing timer
+    if (toastTimer) clearTimeout(toastTimer);
+
     const cleanMsg = message.replace(/^[^\w\s]*\s*/, '');
     toast.textContent = cleanMsg;
     toast.className = `toast ${type}`;
-    setTimeout(() => {
-        toast.className = 'toast hidden';
-    }, 3500);
+
+    toastTimer = setTimeout(() => {
+        toast.classList.add('toast-out');
+        setTimeout(() => {
+            toast.className = 'toast hidden';
+        }, 300);
+    }, 3200);
 }
 
 // ---- UTILS ----

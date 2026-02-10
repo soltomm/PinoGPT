@@ -3,14 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PinoGPT - Football Dashboard</title>
+    <meta name="theme-color" content="#0a0c10">
+    <title>PinoGPT</title>
+    <link rel="icon" type="image/png" href="/static/pinogpt.png">
+    <link rel="apple-touch-icon" href="/static/pinogpt.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <!-- Navigation -->
     <nav class="navbar">
         <div class="nav-brand">
-            <span class="brand-icon">&#9917;</span>
+            <img class="brand-logo" src="/static/pinogpt.png" alt="PinoGPT" width="40" height="40">
             <span class="brand-text">PinoGPT</span>
         </div>
         <div class="nav-links">
@@ -20,7 +25,7 @@
             <a href="#" class="nav-link" data-tab="games">Partite</a>
             <a href="#" class="nav-link" data-tab="history">Storico</a>
         </div>
-        <button class="nav-hamburger" id="hamburger">&#9776;</button>
+        <button class="nav-hamburger" id="hamburger" aria-label="Menu">&#9776;</button>
     </nav>
 
     <!-- Mobile menu -->
@@ -43,6 +48,9 @@
                 <button class="btn btn-sm" onclick="loadPlayers()">Aggiorna</button>
             </div>
             <div class="card">
+                <div class="loading-area" id="leaderboardLoading">
+                    <div class="spinner"></div>
+                </div>
                 <table class="table" id="leaderboardTable">
                     <thead>
                         <tr>
@@ -57,7 +65,7 @@
                     </thead>
                     <tbody></tbody>
                 </table>
-                <p class="empty-state" id="leaderboardEmpty">Nessun giocatore registrato</p>
+                <p class="empty-state hidden" id="leaderboardEmpty">Nessun giocatore registrato</p>
             </div>
         </section>
 
@@ -86,8 +94,11 @@
             <!-- Player list -->
             <div class="card">
                 <h3>Tutti i Giocatori</h3>
+                <div class="loading-area" id="playersLoading">
+                    <div class="spinner"></div>
+                </div>
                 <div id="playerList" class="player-grid"></div>
-                <p class="empty-state" id="playersEmpty">Nessun giocatore registrato</p>
+                <p class="empty-state hidden" id="playersEmpty">Nessun giocatore registrato</p>
             </div>
         </section>
 
@@ -100,6 +111,9 @@
             <div class="card">
                 <h3>Seleziona 10 Giocatori</h3>
                 <p class="hint">Selezionati: <span id="selectedCount">0</span>/10</p>
+                <div class="loading-area" id="teamsLoading">
+                    <div class="spinner"></div>
+                </div>
                 <div id="playerCheckboxes" class="checkbox-grid"></div>
                 <button class="btn btn-primary" id="createTeamsBtn" disabled onclick="createTeams()">
                     Crea Squadre Bilanciate
@@ -132,8 +146,11 @@
                 <button class="btn btn-sm" onclick="loadPendingGames()">Aggiorna</button>
             </div>
 
+            <div class="loading-area" id="pendingLoading">
+                <div class="spinner"></div>
+            </div>
             <div id="pendingGamesContainer"></div>
-            <p class="empty-state" id="pendingEmpty">Nessuna partita in attesa</p>
+            <p class="empty-state hidden" id="pendingEmpty">Nessuna partita in attesa</p>
 
             <hr class="divider">
 
@@ -179,21 +196,35 @@
                 <h2>Storico Partite</h2>
                 <button class="btn btn-sm" onclick="loadHistory()">Aggiorna</button>
             </div>
+            <div class="loading-area" id="historyLoading">
+                <div class="spinner"></div>
+            </div>
             <div id="historyContainer"></div>
-            <p class="empty-state" id="historyEmpty">Nessuna partita nello storico</p>
+            <p class="empty-state hidden" id="historyEmpty">Nessuna partita nello storico</p>
         </section>
     </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <img class="footer-logo" src="/static/pinogpt.png" alt="PinoGPT" width="28" height="28">
+        <span class="footer-brand">PinoGPT</span>
+    </footer>
 
     <!-- Player detail modal -->
     <div class="modal-overlay hidden" id="playerModal">
         <div class="modal">
             <button class="modal-close" onclick="closeModal()">&times;</button>
             <h3 id="modalPlayerName"></h3>
-            <div class="modal-stats">
-                <div class="stat-item">
-                    <span class="stat-label">ELO</span>
-                    <span class="stat-value" id="modalElo"></span>
+            <div class="elo-bar-container">
+                <div class="elo-bar-label">
+                    <span>ELO</span>
+                    <span id="modalEloValue"></span>
                 </div>
+                <div class="elo-bar-track">
+                    <div class="elo-bar-fill" id="modalEloBar"></div>
+                </div>
+            </div>
+            <div class="modal-stats">
                 <div class="stat-item">
                     <span class="stat-label">Partite</span>
                     <span class="stat-value" id="modalGames"></span>

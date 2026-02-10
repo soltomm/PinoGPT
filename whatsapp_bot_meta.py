@@ -26,6 +26,7 @@ app = Flask(__name__)
 META_ACCESS_TOKEN = os.environ.get('META_ACCESS_TOKEN')
 META_PHONE_NUMBER_ID = os.environ.get('META_PHONE_NUMBER_ID')
 WEBHOOK_VERIFY_TOKEN = os.environ.get('WEBHOOK_VERIFY_TOKEN', 'my_secret_token')
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '')
 META_API_VERSION = 'v18.0'
 META_API_URL = f'https://graph.facebook.com/{META_API_VERSION}/{META_PHONE_NUMBER_ID}/messages'
 
@@ -504,7 +505,11 @@ def api_add_player():
 
 @app.route('/api/players/<name>', methods=['DELETE'])
 def api_remove_player(name):
-    """Remove a player"""
+    """Remove a player (requires admin password)"""
+    data = request.get_json() or {}
+    password = data.get('password', '')
+    if not ADMIN_PASSWORD or password != ADMIN_PASSWORD:
+        return jsonify({'error': 'Password errata', 'success': False}), 403
     result = balancer.remove_player(name)
     balancer.save_to_file()
     success = result.startswith('✅')
