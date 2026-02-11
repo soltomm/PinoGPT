@@ -43,24 +43,15 @@ function switchTab(tab) {
 
 // ---- FORMS ----
 function setupForms() {
-    const voteSlider = document.getElementById('playerVote');
-    const voteDisplay = document.getElementById('voteDisplay');
-    voteSlider.addEventListener('input', () => {
-        voteDisplay.textContent = voteSlider.value;
-    });
-
     document.getElementById('addPlayerForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const name = document.getElementById('playerName').value.trim();
-        const vote = parseInt(document.getElementById('playerVote').value);
         if (!name) return;
 
-        const res = await apiPost('/api/players', { name, vote });
+        const res = await apiPost('/api/players', { name });
         if (res.success) {
             showToast(res.message, 'success');
             document.getElementById('playerName').value = '';
-            document.getElementById('playerVote').value = 5;
-            voteDisplay.textContent = '5';
             loadPlayers();
         } else {
             showToast(res.message || res.error, 'error');
@@ -288,7 +279,9 @@ async function removePlayer(name) {
     }
 }
 
-// ---- CREATE TEAMS ----
+// ---- CREATE TEAMS (two-step: propose → confirm) ----
+let proposedTeams = null;
+
 async function createTeams() {
     const checked = document.querySelectorAll('#playerCheckboxes input:checked');
     const names = Array.from(checked).map(cb => cb.value);
@@ -298,10 +291,38 @@ async function createTeams() {
         return;
     }
 
-    const res = await apiPost('/api/games/create-teams', { players: names });
+    const res = await apiPost('/api/games/propose-teams', { players: names });
     if (res.success) {
-        showToast('Squadre create!', 'success');
+        proposedTeams = res.teams;
         displayTeams(res.teams);
+        document.getElementById('confirmTeamsBtn').classList.remove('hidden');
+        showToast('Squadre proposte — conferma per creare la partita', 'success');
+    } else {
+        showToast(res.message || res.error, 'error');
+    }
+}
+
+async function confirmTeams() {
+    if (!proposedTeams) return;
+
+    const res = await apiPost('/api/games/confirm-teams', {
+        team1: proposedTeams.team1,
+        team2: proposedTeams.team2
+    });
+
+    if (res.success) {
+        showToast('Partita creata!', 'success');
+        proposedTeams = null;
+        document.getElementById('confirmTeamsBtn').classList.add('hidden');
+        document.getElementById('teamsResult').classList.add('hidden');
+        // Reset checkboxes
+        document.querySelectorAll('#playerCheckboxes input:checked').forEach(cb => {
+            cb.checked = false;
+            cb.closest('.checkbox-item').classList.remove('selected');
+        });
+        document.querySelectorAll('#playerCheckboxes input').forEach(cb => cb.disabled = false);
+        document.getElementById('selectedCount').textContent = '0';
+        document.getElementById('createTeamsBtn').disabled = true;
     } else {
         showToast(res.message || res.error, 'error');
     }
@@ -374,6 +395,7 @@ async function loadPendingGames() {
                     <input type="number" id="score2-${g.game_id}" min="0" max="99" value="0">
                 </div>
                 <button class="btn btn-primary" onclick="recordScore('${escapeHtml(g.game_id)}')">Registra</button>
+                <button class="btn btn-danger btn-sm" onclick="deletePendingGame('${escapeHtml(g.game_id)}')">Elimina</button>
             </div>
         </div>`;
     }).join('');
@@ -395,6 +417,23 @@ async function recordScore(gameId) {
         loadPlayers();
     } else {
         showToast(res.message || res.error, 'error');
+    }
+}
+
+// ---- DELETE PENDING GAME ----
+async function deletePendingGame(gameId) {
+    const password = prompt('Password admin per eliminare la partita:');
+    if (password === null) return;
+    const res = await fetch(`/api/games/pending/${encodeURIComponent(gameId)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+    }).then(r => r.json()).catch(() => ({ success: false, error: 'Errore di connessione' }));
+    if (res.success) {
+        showToast(res.message, 'success');
+        loadPendingGames();
+    } else {
+        showToast(res.error || res.message || 'Password errata', 'error');
     }
 }
 

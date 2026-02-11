@@ -83,10 +83,6 @@
                         <label for="playerName">Nome</label>
                         <input type="text" id="playerName" placeholder="Nome giocatore" required>
                     </div>
-                    <div class="form-group">
-                        <label for="playerVote">Voto (1-10): <span id="voteDisplay">5</span></label>
-                        <input type="range" id="playerVote" min="1" max="10" value="5">
-                    </div>
                     <button type="submit" class="btn btn-primary">Aggiungi</button>
                 </form>
             </div>
@@ -122,7 +118,7 @@
 
             <!-- Teams result -->
             <div class="card hidden" id="teamsResult">
-                <h3>Squadre Generate</h3>
+                <h3>Squadre Proposte</h3>
                 <div class="teams-display">
                     <div class="team-card team-blue">
                         <h4>Team 1</h4>
@@ -136,6 +132,9 @@
                         <ul id="team2List"></ul>
                     </div>
                 </div>
+                <button class="btn btn-primary hidden" id="confirmTeamsBtn" onclick="confirmTeams()">
+                    Conferma e Crea Partita
+                </button>
             </div>
         </section>
 

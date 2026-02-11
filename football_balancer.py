@@ -194,71 +194,103 @@ class TeamBalancer:
         names = [name for name in names if name and len(name) > 0]
         return names
     
-    def create_teams(self, participant_names: List[str]) -> Tuple[Optional[dict], str]:
+    def propose_teams(self, participant_names: List[str]) -> Tuple[Optional[dict], str]:
         """
-        Create balanced teams from participant list
-        
+        Propose balanced teams without creating a pending game.
+
         Returns:
             (teams_dict, message) where teams_dict is None if error
         """
         if len(participant_names) != 10:
             return None, f"❌ Need exactly 10 players, got {len(participant_names)}"
-        
+
         # Find players
         participants = []
         missing = []
-        
+
         for name in participant_names:
             player = self._find_player(name)
             if player:
                 participants.append(player)
             else:
                 missing.append(name)
-        
+
         if missing:
             return None, f"❌ Unknown players: {', '.join(missing)}\nPlease add them first with their ratings."
-        
+
         # Balance teams using snake draft
         participants.sort(key=lambda p: p.elo, reverse=True)
-        
+
         team1 = []
         team2 = []
-        
+
         for i, player in enumerate(participants):
             if i % 4 == 0 or i % 4 == 3:
                 team1.append(player)
             else:
                 team2.append(player)
-        
+
         team1_avg = sum(p.elo for p in team1) / len(team1)
         team2_avg = sum(p.elo for p in team2) / len(team2)
-        
-        # Create game ID
-        game_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
+
         teams = {
-            'game_id': game_id,
             'team1': [p.name for p in team1],
             'team2': [p.name for p in team2],
             'team1_avg_elo': round(team1_avg),
             'team2_avg_elo': round(team2_avg),
+        }
+
+        return teams, "✅ Squadre proposte"
+
+    def confirm_teams(self, team1: List[str], team2: List[str]) -> Tuple[Optional[dict], str]:
+        """
+        Confirm proposed teams and create a pending game.
+        """
+        game_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        team1_avg = sum(self.players[n].elo for n in team1 if n in self.players) / len(team1)
+        team2_avg = sum(self.players[n].elo for n in team2 if n in self.players) / len(team2)
+
+        teams = {
+            'game_id': game_id,
+            'team1': team1,
+            'team2': team2,
+            'team1_avg_elo': round(team1_avg),
+            'team2_avg_elo': round(team2_avg),
             'timestamp': datetime.now().isoformat()
         }
-        
-        # Store pending game
+
         self.pending_games[game_id] = teams
-        
-        # Format message
+        return teams, "✅ Partita creata"
+
+    def create_teams(self, participant_names: List[str]) -> Tuple[Optional[dict], str]:
+        """
+        Create balanced teams from participant list (used by WhatsApp bot).
+
+        Returns:
+            (teams_dict, message) where teams_dict is None if error
+        """
+        teams, msg = self.propose_teams(participant_names)
+        if not teams:
+            return None, msg
+
+        confirmed, confirm_msg = self.confirm_teams(teams['team1'], teams['team2'])
+        if not confirmed:
+            return None, confirm_msg
+
+        # Format message for WhatsApp
         message = "⚽ *TEAMS CREATED*\n\n"
-        message += f"🔵 *Team 1* (Avg ELO: {round(team1_avg)})\n"
-        for p in team1:
-            message += f"  • {p.name} ({p.elo})\n"
-        message += f"\n🔴 *Team 2* (Avg ELO: {round(team2_avg)})\n"
-        for p in team2:
-            message += f"  • {p.name} ({p.elo})\n"
-        message += f"\n_Game ID: {game_id}_"
-        
-        return teams, message
+        message += f"🔵 *Team 1* (Avg ELO: {confirmed['team1_avg_elo']})\n"
+        for name in confirmed['team1']:
+            p = self._find_player(name)
+            message += f"  • {name} ({p.elo if p else '?'})\n"
+        message += f"\n🔴 *Team 2* (Avg ELO: {confirmed['team2_avg_elo']})\n"
+        for name in confirmed['team2']:
+            p = self._find_player(name)
+            message += f"  • {name} ({p.elo if p else '?'})\n"
+        message += f"\n_Game ID: {confirmed['game_id']}_"
+
+        return confirmed, message
     
     def parse_score(self, message: str) -> Optional[Tuple[int, int]]:
         """
@@ -590,6 +622,13 @@ class TeamBalancer:
                 'timestamp': game.get('timestamp', '')
             })
         return result
+
+    def delete_pending_game(self, game_id: str) -> str:
+        """Delete a pending game without recording a result"""
+        if game_id not in self.pending_games:
+            return f"❌ Partita {game_id} non trovata"
+        del self.pending_games[game_id]
+        return f"✅ Partita {game_id} eliminata"
 
     def get_game_history(self, limit: int = 10) -> str:
         """Ottieni storico ultime partite"""

@@ -491,12 +491,9 @@ def api_get_player(name):
 def api_add_player():
     """Add a new player"""
     data = request.get_json()
-    if not data or 'name' not in data or 'vote' not in data:
-        return jsonify({'error': 'Richiesti: name, vote'}), 400
-    try:
-        vote = int(data['vote'])
-    except (ValueError, TypeError):
-        return jsonify({'error': 'Il voto deve essere un numero da 1 a 10'}), 400
+    if not data or 'name' not in data:
+        return jsonify({'error': 'Richiesto: name'}), 400
+    vote = 6
     result = balancer.add_player(data['name'], vote)
     balancer.save_to_file()
     success = result.startswith('✅')
@@ -522,6 +519,19 @@ def api_pending_games():
     return jsonify(balancer.get_pending_games_data())
 
 
+@app.route('/api/games/pending/<game_id>', methods=['DELETE'])
+def api_delete_pending_game(game_id):
+    """Delete a pending game (requires admin password)"""
+    data = request.get_json() or {}
+    password = data.get('password', '')
+    if not ADMIN_PASSWORD or password != ADMIN_PASSWORD:
+        return jsonify({'error': 'Password errata', 'success': False}), 403
+    result = balancer.delete_pending_game(game_id)
+    balancer.save_to_file()
+    success = result.startswith('✅')
+    return jsonify({'message': result, 'success': success}), 200 if success else 404
+
+
 @app.route('/api/games/history', methods=['GET'])
 def api_game_history():
     """Get game history"""
@@ -529,14 +539,26 @@ def api_game_history():
     return jsonify(balancer.get_game_history_data(limit))
 
 
-@app.route('/api/games/create-teams', methods=['POST'])
-def api_create_teams():
-    """Create balanced teams from 10 player names"""
+@app.route('/api/games/propose-teams', methods=['POST'])
+def api_propose_teams():
+    """Propose balanced teams without creating a game"""
     data = request.get_json()
     if not data or 'players' not in data:
         return jsonify({'error': 'Richiesto: players (lista di 10 nomi)'}), 400
     names = data['players']
-    teams, message = balancer.create_teams(names)
+    teams, message = balancer.propose_teams(names)
+    if teams:
+        return jsonify({'success': True, 'teams': teams, 'message': message})
+    return jsonify({'success': False, 'message': message}), 400
+
+
+@app.route('/api/games/confirm-teams', methods=['POST'])
+def api_confirm_teams():
+    """Confirm proposed teams and create a pending game"""
+    data = request.get_json()
+    if not data or 'team1' not in data or 'team2' not in data:
+        return jsonify({'error': 'Richiesti: team1, team2'}), 400
+    teams, message = balancer.confirm_teams(data['team1'], data['team2'])
     if teams:
         balancer.save_to_file()
         return jsonify({'success': True, 'teams': teams, 'message': message})
