@@ -108,6 +108,7 @@
             <div class="card">
                 <h3>Seleziona 10 Giocatori</h3>
                 <p class="hint">Selezionati: <span id="selectedCount">0</span>/10</p>
+                <input type="text" id="teamsSearch" class="player-search" placeholder="Cerca giocatore..." oninput="filterTeamsCheckboxes(this.value)">
                 <div class="loading-area" id="teamsLoading">
                     <div class="spinner"></div>
                 </div>
@@ -161,6 +162,7 @@
             <div class="card">
                 <h3>Seleziona Giocatori</h3>
                 <p class="hint">Clicca una volta per Team 1 (blu), due volte per Team 2 (rosso), tre volte per deselezionare.</p>
+                <input type="text" id="manualSearch" class="player-search" placeholder="Cerca giocatore..." oninput="filterManualPicker(this.value)">
                 <div id="manualPlayerPicker" class="checkbox-grid"></div>
                 <div class="manual-summary">
                     <div class="manual-team-preview">

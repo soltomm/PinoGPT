@@ -225,12 +225,33 @@ function filterPlayerList(query) {
 
 function renderPlayerCheckboxes(players) {
     const container = document.getElementById('playerCheckboxes');
-    container.innerHTML = players.map(p => `
+    const sorted = [...players].sort((a, b) => a.name.localeCompare(b.name, 'it', { sensitivity: 'base' }));
+    container.innerHTML = sorted.map(p => `
         <label class="checkbox-item" id="cb-${escapeHtml(p.name)}">
             <input type="checkbox" value="${escapeHtml(p.name)}" onchange="updateCheckboxSelection(this)">
             <span>${escapeHtml(p.name)} (${p.elo})</span>
         </label>
     `).join('');
+}
+
+function filterTeamsCheckboxes(query) {
+    const q = query.toLowerCase();
+    const filtered = allPlayers.filter(p => p.name.toLowerCase().includes(q));
+    const sorted = [...filtered].sort((a, b) => a.name.localeCompare(b.name, 'it', { sensitivity: 'base' }));
+    const container = document.getElementById('playerCheckboxes');
+    // Preserve checked state
+    const checked = new Set(Array.from(document.querySelectorAll('#playerCheckboxes input:checked')).map(cb => cb.value));
+    container.innerHTML = sorted.map(p => {
+        const isChecked = checked.has(p.name);
+        const checkedCount = checked.size;
+        const isDisabled = !isChecked && checkedCount >= 10;
+        return `
+        <label class="checkbox-item${isChecked ? ' selected' : ''}" id="cb-${escapeHtml(p.name)}">
+            <input type="checkbox" value="${escapeHtml(p.name)}" onchange="updateCheckboxSelection(this)"
+                ${isChecked ? 'checked' : ''} ${isDisabled ? 'disabled' : ''}>
+            <span>${escapeHtml(p.name)} (${p.elo})</span>
+        </label>`;
+    }).join('');
 }
 
 function updateCheckboxSelection(cb) {
@@ -256,7 +277,8 @@ function renderManualPicker(players) {
         manualPickState[p.name] = oldState[p.name] || 'none';
     });
 
-    container.innerHTML = players.map(p => {
+    const sorted = [...players].sort((a, b) => a.name.localeCompare(b.name, 'it', { sensitivity: 'base' }));
+    container.innerHTML = sorted.map(p => {
         const state = manualPickState[p.name];
         const cls = state !== 'none' ? state : '';
         const label = state === 'team1' ? 'T1' : state === 'team2' ? 'T2' : '';
@@ -266,6 +288,22 @@ function renderManualPicker(players) {
         </div>`;
     }).join('');
     updateManualCounts();
+}
+
+function filterManualPicker(query) {
+    const q = query.toLowerCase();
+    const filtered = allPlayers.filter(p => p.name.toLowerCase().includes(q));
+    const sorted = [...filtered].sort((a, b) => a.name.localeCompare(b.name, 'it', { sensitivity: 'base' }));
+    const container = document.getElementById('manualPlayerPicker');
+    container.innerHTML = sorted.map(p => {
+        const state = manualPickState[p.name] || 'none';
+        const cls = state !== 'none' ? state : '';
+        const label = state === 'team1' ? 'T1' : state === 'team2' ? 'T2' : '';
+        return `<div class="checkbox-item ${cls}" data-player="${escapeHtml(p.name)}" onclick="cycleManualPick(this)">
+            <span class="pick-indicator">${label}</span>
+            <span>${escapeHtml(p.name)} (${p.elo})</span>
+        </div>`;
+    }).join('');
 }
 
 function cycleManualPick(el) {
