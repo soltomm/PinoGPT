@@ -90,6 +90,7 @@
             <!-- Player list -->
             <div class="card">
                 <h3>Tutti i Giocatori</h3>
+                <input type="text" id="playerSearch" class="player-search" placeholder="Cerca giocatore..." oninput="filterPlayerList(this.value)">
                 <div class="loading-area" id="playersLoading">
                     <div class="spinner"></div>
                 </div>

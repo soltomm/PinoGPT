@@ -173,14 +173,44 @@ function renderPlayerList(players) {
     const container = document.getElementById('playerList');
     const empty = document.getElementById('playersEmpty');
 
-    if (players.length === 0) {
+    const sorted = [...players].sort((a, b) => a.name.localeCompare(b.name, 'it', { sensitivity: 'base' }));
+
+    if (sorted.length === 0) {
         container.innerHTML = '';
         empty.classList.remove('hidden');
         return;
     }
     empty.classList.add('hidden');
 
-    container.innerHTML = players.map((p, i) => `
+    container.innerHTML = sorted.map((p, i) => `
+        <div class="player-card stagger-in" style="animation-delay:${i * 40}ms" onclick="showPlayerModal('${escapeHtml(p.name)}')">
+            <div class="player-card-info">
+                <span class="player-card-name">${escapeHtml(p.name)}</span>
+                <span class="player-card-meta">ELO ${p.elo} &middot; ${p.games_played} partite &middot; ${p.win_rate}% vittorie</span>
+            </div>
+            <div class="player-card-actions">
+                <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); removePlayer('${escapeHtml(p.name)}')">Rimuovi</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function filterPlayerList(query) {
+    const q = query.toLowerCase();
+    const filtered = allPlayers.filter(p => p.name.toLowerCase().includes(q));
+    const container = document.getElementById('playerList');
+    const empty = document.getElementById('playersEmpty');
+
+    const sorted = [...filtered].sort((a, b) => a.name.localeCompare(b.name, 'it', { sensitivity: 'base' }));
+
+    if (sorted.length === 0) {
+        container.innerHTML = '';
+        empty.classList.remove('hidden');
+        return;
+    }
+    empty.classList.add('hidden');
+
+    container.innerHTML = sorted.map((p, i) => `
         <div class="player-card stagger-in" style="animation-delay:${i * 40}ms" onclick="showPlayerModal('${escapeHtml(p.name)}')">
             <div class="player-card-info">
                 <span class="player-card-name">${escapeHtml(p.name)}</span>
