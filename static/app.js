@@ -574,6 +574,24 @@ async function loadHistory() {
     }).join('');
 }
 
+// ---- RECALCULATE ALL ELOS ----
+async function recalculateElos() {
+    const password = prompt('Password admin per ricalcolare tutti gli ELO:');
+    if (password === null) return;
+    if (!confirm('Questa operazione ricalcola tutti gli ELO da zero ripetendo la storia delle partite. Continuare?')) return;
+    const res = await fetch('/api/games/recalculate-elos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+    }).then(r => r.json()).catch(() => ({ success: false, error: 'Errore di connessione' }));
+    if (res.success) {
+        showToast(res.message, 'success');
+        loadPlayers();
+    } else {
+        showToast(res.error || res.message || 'Password errata', 'error');
+    }
+}
+
 // ---- DELETE HISTORY GAME ----
 async function deleteHistoryGame(gameId) {
     const password = prompt('Password admin per eliminare la partita e annullare i cambi ELO:');

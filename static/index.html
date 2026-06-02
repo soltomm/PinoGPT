@@ -196,7 +196,10 @@
         <section id="tab-history" class="tab-content">
             <div class="section-header">
                 <h2>Storico Partite</h2>
-                <button class="btn btn-sm" onclick="loadHistory()">Aggiorna</button>
+                <div style="display:flex;gap:8px">
+                    <button class="btn btn-sm" onclick="loadHistory()">Aggiorna</button>
+                    <button class="btn btn-sm btn-danger" onclick="recalculateElos()">Ricalcola ELO</button>
+                </div>
             </div>
             <div class="loading-area" id="historyLoading">
                 <div class="spinner"></div>

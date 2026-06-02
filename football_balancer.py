@@ -645,6 +645,33 @@ class TeamBalancer:
             })
         return result
 
+    def recalculate_all_elos(self) -> str:
+        """Reset all players to 1500 and replay full game history to recompute ELOs."""
+        if not self.supabase:
+            return "❌ Operazione non disponibile (Supabase non connesso)"
+
+        try:
+            all_history = self.supabase.table('game_history').select('*').order(
+                'played_at', desc=False
+            ).execute()
+            all_games = all_history.data if all_history.data else []
+        except Exception as e:
+            print(f"Errore lettura storico: {e}")
+            return "❌ Errore nel recupero dello storico"
+
+        # Reset all players to starting ELO
+        for player in self.players.values():
+            player.elo = 1500
+            player.games_played = 0
+            player.wins = 0
+            player.losses = 0
+
+        # Replay every game in chronological order
+        for g in all_games:
+            self._replay_game(g)
+
+        return f"✅ ELO ricalcolati su {len(all_games)} partite"
+
     def delete_pending_game(self, game_id: str) -> str:
         """Delete a pending game without recording a result"""
         if game_id not in self.pending_games:
