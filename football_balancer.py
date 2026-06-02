@@ -688,51 +688,22 @@ class TeamBalancer:
                     player.wins = change_data['wins_before']
                     player.losses = change_data['losses_before']
         else:
-            # Full replay: determine each player's pre-history ELO from the
-            # oldest elo_changes snapshot available, then replay all games
+            # Full replay: all players started at ELO 1500 with 0 games.
+            # Reset every player involved in any game, then replay all games
             # except the deleted one in chronological order.
-
-            # Collect all player names involved across all history
             all_involved = set()
             for g in all_games:
                 all_involved.update(g.get('team1', []))
                 all_involved.update(g.get('team2', []))
 
-            # Find earliest known ELO for each player by scanning games in order
-            initial_elo = {}
-            initial_games = {}
-            initial_wins = {}
-            initial_losses = {}
-            for g in all_games:
-                changes = g.get('elo_changes') or {}
-                for name, data in changes.items():
-                    if name not in initial_elo:
-                        initial_elo[name] = data['elo_before']
-                        initial_games[name] = data['games_before']
-                        initial_wins[name] = data['wins_before']
-                        initial_losses[name] = data['losses_before']
-
-            # For players with no elo_changes data at all, use current ELO as
-            # best approximation (they weren't in any tracked game)
-            for name in all_involved:
-                if name not in initial_elo:
-                    player = self._find_player(name)
-                    if player:
-                        initial_elo[name] = player.elo
-                        initial_games[name] = player.games_played
-                        initial_wins[name] = player.wins
-                        initial_losses[name] = player.losses
-
-            # Reset all involved players to their pre-history state
             for name in all_involved:
                 player = self._find_player(name)
-                if player and name in initial_elo:
-                    player.elo = initial_elo[name]
-                    player.games_played = initial_games[name]
-                    player.wins = initial_wins[name]
-                    player.losses = initial_losses[name]
+                if player:
+                    player.elo = 1500
+                    player.games_played = 0
+                    player.wins = 0
+                    player.losses = 0
 
-            # Replay all games except the one being deleted
             for g in all_games:
                 if g['game_id'] == game_id:
                     continue
