@@ -558,10 +558,7 @@ async function loadHistory() {
             : g.winner === 'Team 2' ? 'winner-team2'
             : 'winner-draw';
         const winnerLabel = g.winner === 'Draw' ? 'Pareggio' : g.winner;
-        const canDelete = !!g.elo_changes;
-        const deleteBtn = canDelete
-            ? `<button class="btn btn-danger btn-sm" style="margin-top:8px" onclick="deleteHistoryGame('${escapeHtml(g.game_id)}')">Elimina</button>`
-            : '';
+        const deleteBtn = `<button class="btn btn-danger btn-sm" style="margin-top:8px" onclick="deleteHistoryGame('${escapeHtml(g.game_id)}')">Elimina</button>`;
         return `
         <div class="history-card stagger-in" style="animation-delay:${i * 40}ms">
             <span class="history-date">${date}</span>

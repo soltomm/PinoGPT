@@ -653,33 +653,90 @@ class TeamBalancer:
         return f"✅ Partita {game_id} eliminata"
 
     def delete_game_from_history(self, game_id: str) -> str:
-        """Delete a completed game from history and reverse its ELO changes"""
+        """Delete a completed game from history and reverse its ELO changes.
+
+        For games with elo_changes snapshot: directly reverses player stats.
+        For old games without snapshot: replays all history to recompute ELOs.
+        """
         if not self.supabase:
             return "❌ Operazione non disponibile (Supabase non connesso)"
 
         try:
-            result = self.supabase.table('game_history').select('*').eq('game_id', game_id).execute()
-            if not result.data:
-                return f"❌ Partita {game_id} non trovata nello storico"
-            game = result.data[0]
+            all_history = self.supabase.table('game_history').select('*').order(
+                'played_at', desc=False
+            ).execute()
+            all_games = all_history.data if all_history.data else []
         except Exception as e:
-            print(f"Errore lettura partita da storico: {e}")
-            return "❌ Errore nel recupero della partita"
+            print(f"Errore lettura storico: {e}")
+            return "❌ Errore nel recupero dello storico"
 
-        elo_changes = game.get('elo_changes')
-        if not elo_changes:
-            return "❌ Impossibile annullare: dati ELO non disponibili per questa partita (registrata prima dell'aggiornamento)"
+        target = next((g for g in all_games if g['game_id'] == game_id), None)
+        if not target:
+            return f"❌ Partita {game_id} non trovata nello storico"
 
-        # Reverse ELO changes for each player involved
-        all_names = game.get('team1', []) + game.get('team2', [])
-        for name in all_names:
-            player = self._find_player(name)
-            change_data = elo_changes.get(name)
-            if player and change_data:
-                player.elo = change_data['elo_before']
-                player.games_played = change_data['games_before']
-                player.wins = change_data['wins_before']
-                player.losses = change_data['losses_before']
+        elo_changes = target.get('elo_changes')
+
+        if elo_changes:
+            # Fast path: use stored snapshot to directly reverse
+            all_names = target.get('team1', []) + target.get('team2', [])
+            for name in all_names:
+                player = self._find_player(name)
+                change_data = elo_changes.get(name)
+                if player and change_data:
+                    player.elo = change_data['elo_before']
+                    player.games_played = change_data['games_before']
+                    player.wins = change_data['wins_before']
+                    player.losses = change_data['losses_before']
+        else:
+            # Full replay: determine each player's pre-history ELO from the
+            # oldest elo_changes snapshot available, then replay all games
+            # except the deleted one in chronological order.
+
+            # Collect all player names involved across all history
+            all_involved = set()
+            for g in all_games:
+                all_involved.update(g.get('team1', []))
+                all_involved.update(g.get('team2', []))
+
+            # Find earliest known ELO for each player by scanning games in order
+            initial_elo = {}
+            initial_games = {}
+            initial_wins = {}
+            initial_losses = {}
+            for g in all_games:
+                changes = g.get('elo_changes') or {}
+                for name, data in changes.items():
+                    if name not in initial_elo:
+                        initial_elo[name] = data['elo_before']
+                        initial_games[name] = data['games_before']
+                        initial_wins[name] = data['wins_before']
+                        initial_losses[name] = data['losses_before']
+
+            # For players with no elo_changes data at all, use current ELO as
+            # best approximation (they weren't in any tracked game)
+            for name in all_involved:
+                if name not in initial_elo:
+                    player = self._find_player(name)
+                    if player:
+                        initial_elo[name] = player.elo
+                        initial_games[name] = player.games_played
+                        initial_wins[name] = player.wins
+                        initial_losses[name] = player.losses
+
+            # Reset all involved players to their pre-history state
+            for name in all_involved:
+                player = self._find_player(name)
+                if player and name in initial_elo:
+                    player.elo = initial_elo[name]
+                    player.games_played = initial_games[name]
+                    player.wins = initial_wins[name]
+                    player.losses = initial_losses[name]
+
+            # Replay all games except the one being deleted
+            for g in all_games:
+                if g['game_id'] == game_id:
+                    continue
+                self._replay_game(g)
 
         # Delete from Supabase
         try:
@@ -689,6 +746,57 @@ class TeamBalancer:
             return "❌ Errore nell'eliminazione della partita"
 
         return f"✅ Partita {game_id} eliminata e rating aggiornati"
+
+    def _replay_game(self, game: dict):
+        """Re-apply ELO changes for a historical game record."""
+        team1_names = game.get('team1', [])
+        team2_names = game.get('team2', [])
+        team1_score = game.get('team1_score', 0)
+        team2_score = game.get('team2_score', 0)
+
+        team1_players = [p for p in (self._find_player(n) for n in team1_names) if p]
+        team2_players = [p for p in (self._find_player(n) for n in team2_names) if p]
+
+        if not team1_players or not team2_players:
+            return
+
+        if team1_score > team2_score:
+            team1_result, team2_result = 1.0, 0.0
+        elif team2_score > team1_score:
+            team1_result, team2_result = 0.0, 1.0
+        else:
+            team1_result, team2_result = 0.5, 0.5
+
+        team1_avg_elo = sum(p.elo for p in team1_players) / len(team1_players)
+        team2_avg_elo = sum(p.elo for p in team2_players) / len(team2_players)
+
+        expected1 = 1 / (1 + 10 ** ((team2_avg_elo - team1_avg_elo) / 400))
+        expected2 = 1 / (1 + 10 ** ((team1_avg_elo - team2_avg_elo) / 400))
+
+        goal_diff = abs(team1_score - team2_score)
+        goal_multiplier = 1 + (goal_diff - 1) * 0.1
+
+        for player in team1_players:
+            k = self._get_player_k_factor(player)
+            perf_weight = self._get_performance_weight(player.elo, team1_avg_elo, team1_result == 1.0)
+            change = k * goal_multiplier * perf_weight * (team1_result - expected1)
+            player.elo = int(player.elo + change)
+            player.games_played += 1
+            if team1_result == 1.0:
+                player.wins += 1
+            elif team1_result == 0.0:
+                player.losses += 1
+
+        for player in team2_players:
+            k = self._get_player_k_factor(player)
+            perf_weight = self._get_performance_weight(player.elo, team2_avg_elo, team2_result == 1.0)
+            change = k * goal_multiplier * perf_weight * (team2_result - expected2)
+            player.elo = int(player.elo + change)
+            player.games_played += 1
+            if team2_result == 1.0:
+                player.wins += 1
+            elif team2_result == 0.0:
+                player.losses += 1
 
     def get_game_history(self, limit: int = 10) -> str:
         """Ottieni storico ultime partite"""
