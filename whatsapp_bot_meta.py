@@ -539,6 +539,19 @@ def api_game_history():
     return jsonify(balancer.get_game_history_data(limit))
 
 
+@app.route('/api/games/history/<game_id>', methods=['DELETE'])
+def api_delete_game_from_history(game_id):
+    """Delete a completed game from history and reverse ELO changes (requires admin password)"""
+    data = request.get_json() or {}
+    password = data.get('password', '')
+    if not ADMIN_PASSWORD or password != ADMIN_PASSWORD:
+        return jsonify({'error': 'Password errata', 'success': False}), 403
+    result = balancer.delete_game_from_history(game_id)
+    balancer.save_to_file()
+    success = result.startswith('✅')
+    return jsonify({'message': result, 'success': success}), 200 if success else 400
+
+
 @app.route('/api/games/propose-teams', methods=['POST'])
 def api_propose_teams():
     """Propose balanced teams without creating a game"""

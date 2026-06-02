@@ -558,6 +558,10 @@ async function loadHistory() {
             : g.winner === 'Team 2' ? 'winner-team2'
             : 'winner-draw';
         const winnerLabel = g.winner === 'Draw' ? 'Pareggio' : g.winner;
+        const canDelete = !!g.elo_changes;
+        const deleteBtn = canDelete
+            ? `<button class="btn btn-danger btn-sm" style="margin-top:8px" onclick="deleteHistoryGame('${escapeHtml(g.game_id)}')">Elimina</button>`
+            : '';
         return `
         <div class="history-card stagger-in" style="animation-delay:${i * 40}ms">
             <span class="history-date">${date}</span>
@@ -568,8 +572,27 @@ async function loadHistory() {
             </div>
             <span class="history-score">${g.team1_score} - ${g.team2_score}</span>
             <span class="history-winner ${winnerClass}">${winnerLabel}</span>
+            ${deleteBtn}
         </div>`;
     }).join('');
+}
+
+// ---- DELETE HISTORY GAME ----
+async function deleteHistoryGame(gameId) {
+    const password = prompt('Password admin per eliminare la partita e annullare i cambi ELO:');
+    if (password === null) return;
+    const res = await fetch(`/api/games/history/${encodeURIComponent(gameId)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+    }).then(r => r.json()).catch(() => ({ success: false, error: 'Errore di connessione' }));
+    if (res.success) {
+        showToast(res.message, 'success');
+        loadHistory();
+        loadPlayers();
+    } else {
+        showToast(res.error || res.message || 'Password errata', 'error');
+    }
 }
 
 // ---- PLAYER MODAL ----

@@ -355,9 +355,13 @@ class TeamBalancer:
 
         # Update ratings with individual K-factor and performance weighting
         rating_changes = []
+        elo_changes = {}
 
         for player in team1_players:
             old_elo = player.elo
+            old_games = player.games_played
+            old_wins = player.wins
+            old_losses = player.losses
             # K-factor individuale
             k = self._get_player_k_factor(player)
             # Peso performance (forte in squadra perdente perde di più, etc.)
@@ -372,9 +376,17 @@ class TeamBalancer:
             elif team1_result == 0.0:
                 player.losses += 1
             rating_changes.append(f"  {player.name}: {old_elo} → {player.elo} ({change:+.0f})")
+            elo_changes[player.name] = {
+                'elo_before': old_elo, 'elo_after': player.elo,
+                'games_before': old_games, 'wins_before': old_wins, 'losses_before': old_losses,
+                'won': team1_result == 1.0, 'drew': team1_result == 0.5
+            }
 
         for player in team2_players:
             old_elo = player.elo
+            old_games = player.games_played
+            old_wins = player.wins
+            old_losses = player.losses
             # K-factor individuale
             k = self._get_player_k_factor(player)
             # Peso performance
@@ -389,7 +401,12 @@ class TeamBalancer:
             elif team2_result == 0.0:
                 player.losses += 1
             rating_changes.append(f"  {player.name}: {old_elo} → {player.elo} ({change:+.0f})")
-        
+            elo_changes[player.name] = {
+                'elo_before': old_elo, 'elo_after': player.elo,
+                'games_before': old_games, 'wins_before': old_wins, 'losses_before': old_losses,
+                'won': team2_result == 1.0, 'drew': team2_result == 0.5
+            }
+
         # Salva nello storico partite
         self._save_game_history(
             game_id=game_id,
@@ -399,7 +416,8 @@ class TeamBalancer:
             team2_score=team2_score,
             team1_avg_elo=int(team1_avg_elo),
             team2_avg_elo=int(team2_avg_elo),
-            winner=winner
+            winner=winner,
+            elo_changes=elo_changes
         )
 
         # Remove from pending
@@ -566,11 +584,12 @@ class TeamBalancer:
 
     def _save_game_history(self, game_id: str, team1: list, team2: list,
                           team1_score: int, team2_score: int,
-                          team1_avg_elo: int, team2_avg_elo: int, winner: str):
+                          team1_avg_elo: int, team2_avg_elo: int, winner: str,
+                          elo_changes: dict = None):
         """Salva risultato partita nello storico"""
         if self.supabase:
             try:
-                self.supabase.table('game_history').insert({
+                record = {
                     'game_id': game_id,
                     'team1': team1,
                     'team2': team2,
@@ -578,8 +597,11 @@ class TeamBalancer:
                     'team2_score': team2_score,
                     'team1_avg_elo': team1_avg_elo,
                     'team2_avg_elo': team2_avg_elo,
-                    'winner': winner
-                }).execute()
+                    'winner': winner,
+                }
+                if elo_changes:
+                    record['elo_changes'] = elo_changes
+                self.supabase.table('game_history').insert(record).execute()
                 print(f"✅ Partita {game_id} salvata nello storico")
             except Exception as e:
                 print(f"❌ Errore salvataggio storico partita: {e}")
@@ -629,6 +651,44 @@ class TeamBalancer:
             return f"❌ Partita {game_id} non trovata"
         del self.pending_games[game_id]
         return f"✅ Partita {game_id} eliminata"
+
+    def delete_game_from_history(self, game_id: str) -> str:
+        """Delete a completed game from history and reverse its ELO changes"""
+        if not self.supabase:
+            return "❌ Operazione non disponibile (Supabase non connesso)"
+
+        try:
+            result = self.supabase.table('game_history').select('*').eq('game_id', game_id).execute()
+            if not result.data:
+                return f"❌ Partita {game_id} non trovata nello storico"
+            game = result.data[0]
+        except Exception as e:
+            print(f"Errore lettura partita da storico: {e}")
+            return "❌ Errore nel recupero della partita"
+
+        elo_changes = game.get('elo_changes')
+        if not elo_changes:
+            return "❌ Impossibile annullare: dati ELO non disponibili per questa partita (registrata prima dell'aggiornamento)"
+
+        # Reverse ELO changes for each player involved
+        all_names = game.get('team1', []) + game.get('team2', [])
+        for name in all_names:
+            player = self._find_player(name)
+            change_data = elo_changes.get(name)
+            if player and change_data:
+                player.elo = change_data['elo_before']
+                player.games_played = change_data['games_before']
+                player.wins = change_data['wins_before']
+                player.losses = change_data['losses_before']
+
+        # Delete from Supabase
+        try:
+            self.supabase.table('game_history').delete().eq('game_id', game_id).execute()
+        except Exception as e:
+            print(f"Errore eliminazione partita da Supabase: {e}")
+            return "❌ Errore nell'eliminazione della partita"
+
+        return f"✅ Partita {game_id} eliminata e rating aggiornati"
 
     def get_game_history(self, limit: int = 10) -> str:
         """Ottieni storico ultime partite"""
@@ -722,9 +782,13 @@ class TeamBalancer:
 
         # Aggiorna rating con K-factor individuale e peso performance
         rating_changes = []
+        elo_changes = {}
 
         for player in team1_players:
             old_elo = player.elo
+            old_games = player.games_played
+            old_wins = player.wins
+            old_losses = player.losses
             # K-factor individuale
             k = self._get_player_k_factor(player)
             # Peso performance
@@ -739,9 +803,17 @@ class TeamBalancer:
             elif team1_result == 0.0:
                 player.losses += 1
             rating_changes.append(f"  {player.name}: {old_elo} → {player.elo} ({change:+.0f})")
+            elo_changes[player.name] = {
+                'elo_before': old_elo, 'elo_after': player.elo,
+                'games_before': old_games, 'wins_before': old_wins, 'losses_before': old_losses,
+                'won': team1_result == 1.0, 'drew': team1_result == 0.5
+            }
 
         for player in team2_players:
             old_elo = player.elo
+            old_games = player.games_played
+            old_wins = player.wins
+            old_losses = player.losses
             # K-factor individuale
             k = self._get_player_k_factor(player)
             # Peso performance
@@ -756,6 +828,11 @@ class TeamBalancer:
             elif team2_result == 0.0:
                 player.losses += 1
             rating_changes.append(f"  {player.name}: {old_elo} → {player.elo} ({change:+.0f})")
+            elo_changes[player.name] = {
+                'elo_before': old_elo, 'elo_after': player.elo,
+                'games_before': old_games, 'wins_before': old_wins, 'losses_before': old_losses,
+                'won': team2_result == 1.0, 'drew': team2_result == 0.5
+            }
 
         # Genera game_id
         game_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_manual"
@@ -769,7 +846,8 @@ class TeamBalancer:
             team2_score=team2_score,
             team1_avg_elo=int(team1_avg_elo),
             team2_avg_elo=int(team2_avg_elo),
-            winner=winner
+            winner=winner,
+            elo_changes=elo_changes
         )
 
         # Formato messaggio risposta
