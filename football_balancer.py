@@ -20,7 +20,7 @@ except ImportError:
 class Player:
     """Represents a football player with ELO rating"""
     
-    def __init__(self, name: str, initial_rating: int = 1500):
+    def __init__(self, name: str, initial_rating: int = 1555):
         self.name = name
         self.elo = initial_rating
         self.games_played = 0
@@ -646,7 +646,7 @@ class TeamBalancer:
         return result
 
     def recalculate_all_elos(self) -> str:
-        """Reset all players to 1500 and replay full game history to recompute ELOs."""
+        """Reset all players to 1555 and replay full game history to recompute ELOs."""
         if not self.supabase:
             return "❌ Operazione non disponibile (Supabase non connesso)"
 
@@ -661,7 +661,7 @@ class TeamBalancer:
 
         # Reset all players to starting ELO
         for player in self.players.values():
-            player.elo = 1500
+            player.elo = 1555
             player.games_played = 0
             player.wins = 0
             player.losses = 0
@@ -715,7 +715,7 @@ class TeamBalancer:
                     player.wins = change_data['wins_before']
                     player.losses = change_data['losses_before']
         else:
-            # Full replay: all players started at ELO 1500 with 0 games.
+            # Full replay: all players started at ELO 1555 with 0 games.
             # Reset every player involved in any game, then replay all games
             # except the deleted one in chronological order.
             all_involved = set()
@@ -726,7 +726,7 @@ class TeamBalancer:
             for name in all_involved:
                 player = self._find_player(name)
                 if player:
-                    player.elo = 1500
+                    player.elo = 1555
                     player.games_played = 0
                     player.wins = 0
                     player.losses = 0
