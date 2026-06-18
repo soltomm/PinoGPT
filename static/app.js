@@ -146,16 +146,19 @@ function renderLeaderboard(players) {
     const tbody = document.querySelector('#leaderboardTable tbody');
     const empty = document.getElementById('leaderboardEmpty');
 
-    if (players.length === 0) {
+    const qualified = players.filter(p => p.games_played >= 4);
+
+    if (qualified.length === 0) {
         tbody.innerHTML = '';
         empty.classList.remove('hidden');
         return;
     }
     empty.classList.add('hidden');
 
-    tbody.innerHTML = players.map((p, i) => {
-        const rankClass = p.rank <= 3 ? `rank-${p.rank}` : '';
-        const rankIcon = p.rank === 1 ? '&#129351;' : p.rank === 2 ? '&#129352;' : p.rank === 3 ? '&#129353;' : p.rank;
+    tbody.innerHTML = qualified.map((p, i) => {
+        const rank = i + 1;
+        const rankClass = rank <= 3 ? `rank-${rank}` : '';
+        const rankIcon = rank === 1 ? '&#129351;' : rank === 2 ? '&#129352;' : rank === 3 ? '&#129353;' : rank;
         const eloClass = p.elo >= 1600 ? 'elo-high' : p.elo >= 1300 ? 'elo-mid' : 'elo-low';
         return `<tr class="stagger-in" style="animation-delay:${i * 30}ms" onclick="showPlayerModal('${escapeHtml(p.name)}')">
             <td class="${rankClass}">${rankIcon}</td>
