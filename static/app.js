@@ -538,24 +538,38 @@ async function recordManualGame() {
 }
 
 // ---- HISTORY ----
+let allGames = [];
+let historyPage = 0;
+const HISTORY_PAGE_SIZE = 20;
+
 async function loadHistory() {
     showLoading('historyLoading');
-    const games = await apiFetch('/api/games/history');
+    const games = await apiFetch('/api/games/history?limit=1000');
     hideLoading('historyLoading');
 
     if (!games) return;
 
+    allGames = games;
+    historyPage = 0;
+    renderHistory();
+}
+
+function renderHistory() {
     const container = document.getElementById('historyContainer');
     const empty = document.getElementById('historyEmpty');
 
-    if (games.length === 0) {
+    if (allGames.length === 0) {
         container.innerHTML = '';
         empty.classList.remove('hidden');
         return;
     }
     empty.classList.add('hidden');
 
-    container.innerHTML = games.map((g, i) => {
+    const totalPages = Math.ceil(allGames.length / HISTORY_PAGE_SIZE);
+    const start = historyPage * HISTORY_PAGE_SIZE;
+    const pageGames = allGames.slice(start, start + HISTORY_PAGE_SIZE);
+
+    const cards = pageGames.map((g, i) => {
         const date = g.played_at ? new Date(g.played_at).toLocaleDateString('it-IT') : 'N/A';
         const winnerClass = g.winner === 'Team 1' ? 'winner-team1'
             : g.winner === 'Team 2' ? 'winner-team2'
@@ -575,6 +589,25 @@ async function loadHistory() {
             ${deleteBtn}
         </div>`;
     }).join('');
+
+    const pagination = totalPages > 1 ? `
+        <div class="history-pagination">
+            <button class="btn btn-secondary btn-sm" onclick="changeHistoryPage(${historyPage - 1})" ${historyPage === 0 ? 'disabled' : ''}>&larr;</button>
+            ${Array.from({length: totalPages}, (_, i) =>
+                `<button class="btn btn-sm ${i === historyPage ? 'btn-primary' : 'btn-secondary'}" onclick="changeHistoryPage(${i})">${i + 1}</button>`
+            ).join('')}
+            <button class="btn btn-secondary btn-sm" onclick="changeHistoryPage(${historyPage + 1})" ${historyPage === totalPages - 1 ? 'disabled' : ''}>&rarr;</button>
+        </div>` : '';
+
+    container.innerHTML = cards + pagination;
+}
+
+function changeHistoryPage(page) {
+    const totalPages = Math.ceil(allGames.length / HISTORY_PAGE_SIZE);
+    if (page < 0 || page >= totalPages) return;
+    historyPage = page;
+    renderHistory();
+    document.getElementById('historyContainer').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // ---- RECALCULATE ALL ELOS ----
